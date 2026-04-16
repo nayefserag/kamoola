@@ -26,7 +26,7 @@ export class SchedulerService {
       lastError: null,
       isRunning: false,
     },
-    weeklyFullScrape: {
+    hourlyFullScrape: {
       lastRunAt: null,
       lastResult: null,
       lastError: null,
