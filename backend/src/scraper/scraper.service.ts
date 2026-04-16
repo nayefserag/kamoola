@@ -68,17 +68,28 @@ export class ScraperService {
         this.logger.log(`Starting scrape for source: ${plugin.sourceName}`);
 
         try {
-          // Fetch latest manga from first 5 pages
+          // Fetch latest manga across all pages until an empty page is hit.
+          // Hard cap at 500 pages as a safety belt.
           const allManga: MangaResult[] = [];
-          for (let page = 0; page < 5; page++) {
+          const seenUrls = new Set<string>();
+          for (let page = 0; page < 500; page++) {
             try {
               const mangaList = await plugin.getLatestManga(page);
               if (mangaList.length === 0) break;
-              allManga.push(...mangaList);
+              let added = 0;
+              for (const m of mangaList) {
+                if (seenUrls.has(m.sourceUrl)) continue;
+                seenUrls.add(m.sourceUrl);
+                allManga.push(m);
+                added++;
+              }
+              // Page returned only duplicates → we've wrapped past the end.
+              if (added === 0) break;
             } catch (error: any) {
               const errMsg = `${plugin.sourceName}: Failed to fetch page ${page}: ${error.message}`;
               this.logger.error(errMsg);
               this.errors.push(errMsg);
+              break;
             }
           }
 

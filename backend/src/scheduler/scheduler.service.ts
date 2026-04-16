@@ -140,12 +140,12 @@ export class SchedulerService {
   }
 
   /**
-   * Weekly full scrape - discover new manga titles (every Sunday at 3:00 AM UTC).
+   * Hourly full scrape - discover new manga titles (top of every hour, UTC).
    */
-  @Cron('0 3 * * 0', { name: 'weeklyFullScrape', timeZone: 'UTC' })
+  @Cron('0 * * * *', { name: 'hourlyFullScrape', timeZone: 'UTC' })
   async handleWeeklyFullScrape(): Promise<void> {
-    const jobName = 'weeklyFullScrape';
-    this.logger.log('Starting weekly full scrape...');
+    const jobName = 'hourlyFullScrape';
+    this.logger.log('Starting hourly full scrape...');
 
     if (this.jobRecords[jobName].isRunning) {
       this.logger.warn(
