@@ -47,16 +47,26 @@ export class ChapterService {
       throw new NotFoundException(`Chapter with ID "${id}" not found`);
     }
 
-    // If pages are empty, fetch them on-demand from the source
-    if (!chapter.pages || chapter.pages.length === 0) {
-      this.logger.log(`Fetching pages on-demand for chapter ${chapter.chapterNumber} (source: ${chapter.source})`);
+    // Sources with tokenized/expiring CDN URLs must never be cached.
+    const EPHEMERAL_SOURCES = new Set(['mangadex']);
+    const isEphemeral = EPHEMERAL_SOURCES.has(chapter.source);
+
+    const needsFetch =
+      isEphemeral || !chapter.pages || chapter.pages.length === 0;
+
+    if (needsFetch) {
+      this.logger.log(
+        `Fetching pages ${isEphemeral ? '(ephemeral)' : 'on-demand'} for chapter ${chapter.chapterNumber} (source: ${chapter.source})`,
+      );
       try {
         const plugin = this.scraperRegistry.getPlugin(chapter.source);
         if (plugin && chapter.sourceUrl) {
           const pages = await plugin.getPageList(chapter.sourceUrl);
           if (pages.length > 0) {
-            // Save pages to DB so we don't fetch again
-            await this.chapterModel.findByIdAndUpdate(id, { pages }).exec();
+            // Only cache pages for sources with stable CDN URLs.
+            if (!isEphemeral) {
+              await this.chapterModel.findByIdAndUpdate(id, { pages }).exec();
+            }
             return { ...chapter, pages };
           }
         }
