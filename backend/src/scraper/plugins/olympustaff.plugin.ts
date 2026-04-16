@@ -524,69 +524,40 @@ export class OlympusStaffPlugin implements IScraperPlugin {
   private scrapeListingPage(html: string): MangaResult[] {
     const $ = cheerio.load(html);
     const results: MangaResult[] = [];
+    const seenSlugs = new Set<string>();
 
-    // Broad selectors covering common card patterns
-    $(
-      'div.series-card, div.manga-card, div.comic-card, ' +
-      'div.listupd div.bs, div.manga-item, ' +
-      'a[href*="/series/"], div.novel-item',
-    ).each((_i, el) => {
-      const $el = $(el);
-      const linkEl = $el.is('a') ? $el : $el.find('a[href*="/series/"]').first();
-      const href = linkEl.attr('href') || '';
+    // Olympustaff markup:
+    //   /?page=N  → last-chapter grid: .last-chapter .post-body .box .uta .imgu a[href*="/series/"]
+    //   /series?page=N → same box-style cards (also .entry-box for popular slider)
+    // Match series detail links — /series/<slug> WITHOUT a trailing chapter number.
+    $('a[href*="/series/"]').each((_i, el) => {
+      const $a = $(el);
+      const href = $a.attr('href') || '';
+      const m = href.match(/\/series\/([^\/?#]+)(?:\/|$|\?)/);
+      if (!m) return;
+      const slug = m[1];
+      // Skip chapter links like /series/<slug>/<number>
+      if (/\/series\/[^\/]+\/\d+/.test(href)) return;
+      if (seenSlugs.has(slug)) return;
+
+      const $img = $a.find('img').first();
       const title =
-        $el.find('h3, h2, h4, .series-title, .manga-title, .title').text().trim() ||
-        linkEl.attr('title') ||
-        $el.find('img').attr('alt') ||
-        '';
-      const coverImage =
-        $el.find('img').attr('data-src') ||
-        $el.find('img').attr('src') ||
-        '';
+        $a.find('h3').first().text().trim() ||
+        $img.attr('alt')?.trim() ||
+        $a.attr('title')?.trim() ||
+        $a.text().trim();
+      const coverImage = ($img.attr('data-src') || $img.attr('src') || '').trim();
 
-      if (title && href && href.includes('/series/')) {
-        results.push({
-          title,
-          coverImage: coverImage ? this.resolveUrl(coverImage.trim()) : undefined,
-          sourceUrl: this.resolveUrl(href),
-          language: 'ar',
-        });
-      }
-    });
+      if (!title || title.length < 2) return;
+      seenSlugs.add(slug);
 
-    // If the broad selectors found nothing, try picking up any link to /series/*
-    if (results.length === 0) {
-      const seen = new Set<string>();
-      $('a[href*="/series/"]').each((_i, el) => {
-        const href = $(el).attr('href') || '';
-        // Only links to manga detail pages (not the listing itself)
-        if (!href || href === '/series' || href === '/series/') return;
-        const fullUrl = this.resolveUrl(href);
-        if (seen.has(fullUrl)) return;
-        seen.add(fullUrl);
-
-        const title =
-          $(el).attr('title') ||
-          $(el).text().trim() ||
-          $(el).find('img').attr('alt') ||
-          '';
-        const coverImage =
-          $(el).find('img').attr('data-src') ||
-          $(el).find('img').attr('src') ||
-          '';
-
-        if (title && title.length > 1) {
-          results.push({
-            title,
-            coverImage: coverImage
-              ? this.resolveUrl(coverImage.trim())
-              : undefined,
-            sourceUrl: fullUrl,
-            language: 'ar',
-          });
-        }
+      results.push({
+        title,
+        coverImage: coverImage ? this.resolveUrl(coverImage) : undefined,
+        sourceUrl: this.resolveUrl(href.split(/[?#]/)[0]),
+        language: 'ar',
       });
-    }
+    });
 
     return results;
   }
@@ -594,60 +565,48 @@ export class OlympusStaffPlugin implements IScraperPlugin {
   private scrapeMangaDetail(html: string, sourceUrl: string): MangaResult {
     const $ = cheerio.load(html);
 
+    // Title lives inside the content h1 (.author-info-title h1).
+    // The navbar also has an h1-ish logo; pick the author-info one first.
     const title =
-      $('h1').first().text().trim() ||
-      $('h2.series-title, h2.manga-title').first().text().trim() ||
+      $('.author-info-title h1').first().text().trim() ||
+      $('.author-info-title h6').first().text().trim() ||
+      $('h1').not('nav h1').first().text().trim() ||
+      $('meta[property="og:title"]').attr('content')?.trim() ||
       'Unknown';
 
     const coverImage =
-      $('div.summary_image img, div.series-cover img, div.thumb img, img.manga-cover')
-        .first()
-        .attr('data-src') ||
-      $('div.summary_image img, div.series-cover img, div.thumb img, img.manga-cover')
-        .first()
-        .attr('src') ||
-      // Try og:image meta tag
-      $('meta[property="og:image"]').attr('content') ||
-      '';
+      ($('.whitebox img[src*="/images/manga/"]').first().attr('src') ||
+        $('meta[property="og:image"]').attr('content') ||
+        '').trim();
 
-    const description =
-      $('div.summary__content, div.description, div.synopsis, p.description')
-        .first()
-        .text()
-        .replace(/\s+/g, ' ')
-        .trim();
+    const description = $('.review-content p').first().text().trim();
 
     const genres: string[] = [];
-    $('div.genres a, span.genre a, a.genre-tag, div.tags a').each((_i, el) => {
-      const genre = $(el).text().trim();
-      if (genre) genres.push(genre);
+    $('.review-author-info a.subtitle').each((_i, el) => {
+      const g = $(el).text().trim();
+      if (g) genres.push(g);
     });
 
+    // .full-list-info rows: <small>Label:</small><small><a>Value</a></small>
     let statusText = '';
-    // Look for status in common locations
-    $('span:contains("الحالة"), span:contains("Status"), div:contains("الحالة")').each(
-      (_i, el) => {
-        const $el = $(el);
-        const nextText = $el.next().text().trim() || $el.parent().text().trim();
-        if (nextText && !statusText) {
-          statusText = nextText.replace(/.*(?:الحالة|Status)\s*:?\s*/i, '').trim();
-        }
-      },
-    );
-
-    let author: string | undefined;
-    $('span:contains("المؤلف"), span:contains("Author")').each((_i, el) => {
-      const nextText = $(el).next().text().trim();
-      if (nextText) author = nextText;
+    let artist: string | undefined;
+    $('.full-list-info').each((_i, el) => {
+      const $row = $(el);
+      const label = $row.find('small').first().text().trim();
+      const value = $row.find('small').eq(1).find('a').text().trim() ||
+                    $row.find('small').eq(1).text().trim();
+      if (!label || !value) return;
+      if (label.includes('الحالة')) statusText = value;
+      else if (label.includes('الرسام')) artist = value === 'غير معروف' ? undefined : value;
     });
 
     return {
       title,
-      author,
+      artist,
       genres: genres.length > 0 ? genres : undefined,
       status: this.mapStatus(statusText),
       description: description || undefined,
-      coverImage: coverImage ? this.resolveUrl(coverImage.trim()) : undefined,
+      coverImage: coverImage ? this.resolveUrl(coverImage) : undefined,
       sourceUrl,
       language: 'ar',
     };
@@ -659,52 +618,56 @@ export class OlympusStaffPlugin implements IScraperPlugin {
   ): ChapterResult[] {
     const $ = cheerio.load(html);
     const chapters: ChapterResult[] = [];
+    const seen = new Set<number>();
 
-    // Common selectors for chapter lists
-    $(
-      'div.chapters-list a, ul.chapter-list li a, ' +
-      'div.chapter-item a, a.chapter-link, ' +
-      'div.eplister ul li a, ul.clstyle li a',
-    ).each((_i, el) => {
-      const $el = $(el);
-      const href = $el.attr('href') || '';
-      const text = $el.text().trim();
-      const chNum = this.extractChapterNumber(text);
-      if (chNum == null) return;
+    // Primary: chapter grid cards with data attributes
+    $('div.chapter-card').each((_i, el) => {
+      const $card = $(el);
+      const numStr = $card.attr('data-number') || '';
+      const chNum = parseFloat(numStr);
+      if (isNaN(chNum)) return;
 
-      const $parent = $el.closest('li, div');
-      const dateText =
-        $parent.find('span.date, span.chapter-date, time').text().trim() ||
-        $parent.find('time').attr('datetime') ||
-        '';
+      const $link = $card.find('a.chapter-link').first();
+      // Locked: modal-trigger link or lock badge present
+      const isLocked =
+        $link.attr('data-bs-toggle') === 'modal' ||
+        $card.find('.status-badge.locked, .fa-lock').length > 0;
+      if (isLocked) return;
+
+      const href = $link.attr('href') || '';
+      if (!href || href === '#') return;
+
+      const title = $card.find('.chapter-title').first().text().trim();
+      const dateTs = parseInt($card.attr('data-date') || '', 10);
+      const publishedAt =
+        !isNaN(dateTs) && dateTs > 0 ? new Date(dateTs * 1000) : undefined;
+
+      if (seen.has(chNum)) return;
+      seen.add(chNum);
 
       chapters.push({
         chapterNumber: chNum,
-        title: text || undefined,
+        title: title || undefined,
         sourceUrl: this.resolveUrl(href),
-        publishedAt: this.parseDate(dateText),
+        publishedAt,
         language: 'ar',
       });
     });
 
-    // Broader fallback: any link whose text matches a chapter pattern
+    // Fallback: parse the <select id="select_chapter"> options on the reader page
     if (chapters.length === 0) {
-      $('a').each((_i, el) => {
-        const href = $(el).attr('href') || '';
+      $('#select_chapter option').each((_i, el) => {
+        const value = ($(el).attr('value') || '').trim();
         const text = $(el).text().trim();
-        if (!href || !text) return;
-
-        const chNum = this.extractChapterNumber(text);
-        if (chNum == null) return;
-
-        // Make sure it's a chapter link (contains the manga path)
-        const mangaPath = mangaSourceUrl.replace(this.baseUrl, '');
-        if (!href.includes(mangaPath) && !href.includes('/chapter')) return;
-
+        if (!value || !value.includes('/series/')) return;
+        const m = text.match(/([\d.]+)/);
+        if (!m) return;
+        const chNum = parseFloat(m[1]);
+        if (isNaN(chNum) || seen.has(chNum)) return;
+        seen.add(chNum);
         chapters.push({
           chapterNumber: chNum,
-          title: text,
-          sourceUrl: this.resolveUrl(href),
+          sourceUrl: this.resolveUrl(value),
           language: 'ar',
         });
       });
@@ -717,31 +680,10 @@ export class OlympusStaffPlugin implements IScraperPlugin {
     const $ = cheerio.load(html);
     const pages: PageResult[] = [];
 
-    // Common image container selectors for manga readers
-    $(
-      'div.reading-content img, div.chapter-content img, ' +
-      'div.reader-area img, div.container-chapter-reader img, ' +
-      'div#readerarea img, div.entry-content img, ' +
-      'img.chapter-img, img.reader-img',
-    ).each((i, el) => {
+    $('div.reading-content img.manga-chapter-img').each((i, el) => {
       const $img = $(el);
-      const imageUrl =
-        $img.attr('data-src')?.trim() ||
-        $img.attr('src')?.trim() ||
-        '';
-
-      // Skip placeholder/loading images
-      if (
-        !imageUrl ||
-        imageUrl.includes('loading') ||
-        imageUrl.includes('pixel') ||
-        imageUrl.includes('data:image/gif') ||
-        imageUrl.includes('logo') ||
-        imageUrl.includes('icon')
-      ) {
-        return;
-      }
-
+      const imageUrl = ($img.attr('data-src') || $img.attr('src') || '').trim();
+      if (!imageUrl) return;
       pages.push({
         pageNumber: i + 1,
         imageUrl: this.resolveUrl(imageUrl),
