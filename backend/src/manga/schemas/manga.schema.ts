@@ -56,7 +56,10 @@ export class Manga {
 
 export const MangaSchema = SchemaFactory.createForClass(Manga);
 
-MangaSchema.index({ title: 'text' });
+MangaSchema.index(
+  { title: 'text' },
+  { default_language: 'none', language_override: 'none' },
+);
 MangaSchema.index({ genres: 1 });
 MangaSchema.index({ source: 1 });
 MangaSchema.index({ language: 1 });
