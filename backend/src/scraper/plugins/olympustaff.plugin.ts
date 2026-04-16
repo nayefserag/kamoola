@@ -27,6 +27,7 @@ export class OlympusStaffPlugin implements IScraperPlugin {
 
   private readonly logger = new Logger(OlympusStaffPlugin.name);
   private readonly client: AxiosInstance;
+  private gotScrapingPromise: Promise<any> | undefined;
 
   constructor() {
     this.baseUrl =
@@ -43,6 +44,39 @@ export class OlympusStaffPlugin implements IScraperPlugin {
         'Accept-Language': 'ar,en;q=0.5',
       },
     });
+  }
+
+  private async getGotScraping(): Promise<any> {
+    if (!this.gotScrapingPromise) {
+      this.gotScrapingPromise = (
+        new Function('return import("got-scraping")') as () => Promise<any>
+      )().then((mod) => mod.gotScraping);
+    }
+    return this.gotScrapingPromise;
+  }
+
+  private async fetchHtml(path: string): Promise<string> {
+    const url = path.startsWith('http') ? path : `${this.baseUrl}${path}`;
+    try {
+      const gotScraping = await this.getGotScraping();
+      const res = await gotScraping({
+        url,
+        timeout: { request: 60000 },
+        headerGeneratorOptions: {
+          browsers: [{ name: 'chrome', minVersion: 120 }],
+          devices: ['desktop'],
+          operatingSystems: ['windows'],
+          locales: ['ar-SA', 'en-US'],
+        },
+      });
+      return res.body as string;
+    } catch (err: any) {
+      this.logger.warn(
+        `got-scraping failed for ${url}, falling back to axios: ${err.message}`,
+      );
+      const res = await this.client.get(url);
+      return res.data as string;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -200,8 +234,7 @@ export class OlympusStaffPlugin implements IScraperPlugin {
   async getLatestManga(page: number): Promise<MangaResult[]> {
     try {
       const url = `/series?page=${page + 1}`;
-      const response = await this.client.get(url);
-      const html = response.data;
+      const html = await this.fetchHtml(url);
 
       // Try JSON-based extraction first
       const jsonData = this.extractEmbeddedJson(html);
@@ -229,8 +262,7 @@ export class OlympusStaffPlugin implements IScraperPlugin {
 
       for (const url of searchUrls) {
         try {
-          const response = await this.client.get(url);
-          const html = response.data;
+          const html = await this.fetchHtml(url);
 
           const jsonData = this.extractEmbeddedJson(html);
           if (jsonData) {
@@ -256,8 +288,7 @@ export class OlympusStaffPlugin implements IScraperPlugin {
 
   async getMangaDetail(sourceUrl: string): Promise<MangaResult> {
     try {
-      const response = await this.client.get(sourceUrl);
-      const html = response.data;
+      const html = await this.fetchHtml(sourceUrl);
 
       // Try JSON extraction
       const jsonData = this.extractEmbeddedJson(html);
@@ -278,8 +309,7 @@ export class OlympusStaffPlugin implements IScraperPlugin {
 
   async getChapterList(sourceUrl: string): Promise<ChapterResult[]> {
     try {
-      const response = await this.client.get(sourceUrl);
-      const html = response.data;
+      const html = await this.fetchHtml(sourceUrl);
 
       // Try JSON extraction
       const jsonData = this.extractEmbeddedJson(html);
@@ -300,8 +330,7 @@ export class OlympusStaffPlugin implements IScraperPlugin {
 
   async getPageList(chapterUrl: string): Promise<PageResult[]> {
     try {
-      const response = await this.client.get(chapterUrl);
-      const html = response.data;
+      const html = await this.fetchHtml(chapterUrl);
 
       // Try JSON extraction
       const jsonData = this.extractEmbeddedJson(html);
