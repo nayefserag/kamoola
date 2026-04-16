@@ -22,6 +22,18 @@ export class ProxyController {
     olympustaff: process.env.OLYMPUSTAFF_BASE_URL
       ? `${process.env.OLYMPUSTAFF_BASE_URL}/`
       : 'https://olympustaff.com/',
+    mangalek: process.env.MANGALEK_BASE_URL
+      ? `${process.env.MANGALEK_BASE_URL}/`
+      : 'https://mangalek.top/',
+    azora: process.env.AZORA_BASE_URL
+      ? `${process.env.AZORA_BASE_URL}/`
+      : 'https://azoramoon.com/',
+    mangaswat: process.env.MANGASWAT_BASE_URL
+      ? `${process.env.MANGASWAT_BASE_URL}/`
+      : 'https://mangaswat.com/',
+    gmanga: process.env.GMANGA_BASE_URL
+      ? `${process.env.GMANGA_BASE_URL}/`
+      : 'https://gmanga.org/',
   };
 
   @Get()
