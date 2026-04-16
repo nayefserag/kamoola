@@ -38,6 +38,26 @@ function ReaderImage({
 }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const MAX_ATTEMPTS = 4;
+
+  const handleError = () => {
+    if (attempt < MAX_ATTEMPTS - 1) {
+      const delay = 500 * (attempt + 1);
+      setTimeout(() => setAttempt((a) => a + 1), delay);
+    } else {
+      setError(true);
+    }
+  };
+
+  const retryManually = () => {
+    setError(false);
+    setLoaded(false);
+    setAttempt((a) => a + 1);
+  };
+
+  // Cache-bust on retries so browser + CDN re-fetch.
+  const finalSrc = attempt === 0 ? src : `${src}${src.includes('?') ? '&' : '?'}_r=${attempt}`;
 
   return (
     <div className={`relative ${className}`}>
@@ -50,14 +70,21 @@ function ReaderImage({
         <div className="flex flex-col items-center justify-center min-h-[200px] bg-surface/50 gap-2">
           <ImageOff className="w-8 h-8 text-textSecondary" />
           <p className="text-xs text-textSecondary">Failed to load image</p>
+          <button
+            onClick={retryManually}
+            className="text-xs text-accent hover:underline"
+          >
+            Retry
+          </button>
         </div>
       ) : (
         <img
-          src={src}
+          key={attempt}
+          src={finalSrc}
           alt={alt}
           loading="lazy"
           onLoad={() => setLoaded(true)}
-          onError={() => setError(true)}
+          onError={handleError}
           className={`w-full transition-opacity duration-300 ${
             loaded ? 'opacity-100' : 'opacity-0 absolute inset-0'
           }`}

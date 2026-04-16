@@ -78,36 +78,52 @@ export class ProxyController {
       headers['Referer'] = referer;
     }
 
-    try {
-      const response = await axios.get(decodedUrl, {
-        responseType: 'arraybuffer',
-        timeout: 30000,
-        headers,
-        maxRedirects: 5,
-      });
+    const maxAttempts = 3;
+    let lastError: any;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const response = await axios.get(decodedUrl, {
+          responseType: 'arraybuffer',
+          timeout: 60000,
+          headers,
+          maxRedirects: 5,
+          validateStatus: (s) => s >= 200 && s < 300,
+        });
 
-      const contentType =
-        response.headers['content-type'] || 'image/jpeg';
+        const contentType =
+          response.headers['content-type'] || 'image/jpeg';
 
-      res.set({
-        'Content-Type': contentType,
-        'Content-Length': response.data.length,
-        'Cache-Control': 'public, max-age=86400',
-        'Access-Control-Allow-Origin': '*',
-      });
+        res.set({
+          'Content-Type': contentType,
+          'Content-Length': response.data.length,
+          'Cache-Control': 'public, max-age=604800, immutable',
+          'Access-Control-Allow-Origin': '*',
+        });
 
-      return res.send(response.data);
-    } catch (error: any) {
-      const statusCode =
-        error.response?.status || HttpStatus.BAD_GATEWAY;
-      this.logger.error(
-        `Failed to proxy image from ${decodedUrl}: ${error.message}`,
-      );
-
-      return res.status(statusCode).json({
-        error: 'Failed to fetch image',
-        message: error.message,
-      });
+        return res.send(response.data);
+      } catch (error: any) {
+        lastError = error;
+        const status = error.response?.status;
+        // Don't retry on 4xx (except 408/429) — they won't fix themselves.
+        const retriable =
+          !status || status >= 500 || status === 408 || status === 429;
+        if (!retriable || attempt === maxAttempts) break;
+        const backoff = 300 * attempt;
+        this.logger.warn(
+          `Proxy attempt ${attempt}/${maxAttempts} failed for ${decodedUrl}: ${error.message} — retrying in ${backoff}ms`,
+        );
+        await new Promise((r) => setTimeout(r, backoff));
+      }
     }
+
+    const statusCode =
+      lastError?.response?.status || HttpStatus.BAD_GATEWAY;
+    this.logger.error(
+      `Failed to proxy image from ${decodedUrl} after ${maxAttempts} attempts: ${lastError?.message}`,
+    );
+    return res.status(statusCode).json({
+      error: 'Failed to fetch image',
+      message: lastError?.message,
+    });
   }
 }
