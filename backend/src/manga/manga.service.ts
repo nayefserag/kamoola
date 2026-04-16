@@ -11,7 +11,7 @@ export class MangaService {
   ) {}
 
   async findAll(query: FilterMangaDto) {
-    const { page, limit, genres, status, search, sortBy } = query;
+    const { page, limit, genres, status, search, sortBy, language } = query;
     const skip = (page - 1) * limit;
 
     const filter: FilterQuery<MangaDocument> = {};
@@ -22,6 +22,10 @@ export class MangaService {
 
     if (status) {
       filter.status = status;
+    }
+
+    if (language) {
+      filter.language = language;
     }
 
     if (search) {

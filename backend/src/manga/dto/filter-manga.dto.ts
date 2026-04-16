@@ -31,6 +31,13 @@ export class FilterMangaDto extends PaginationQueryDto {
   search?: string;
 
   @ApiPropertyOptional({
+    description: 'Filter by language code (e.g. en, ar)',
+  })
+  @IsOptional()
+  @IsString()
+  language?: string;
+
+  @ApiPropertyOptional({
     description: 'Sort field',
     enum: ['title', 'views', 'rating', 'updatedAt', 'createdAt'],
     default: 'updatedAt',

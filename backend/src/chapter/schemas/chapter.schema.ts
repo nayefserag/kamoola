@@ -30,6 +30,9 @@ export class Chapter {
 
   @Prop()
   source!: string;
+
+  @Prop({ default: 'en' })
+  language!: string;
 }
 
 export const ChapterSchema = SchemaFactory.createForClass(Chapter);

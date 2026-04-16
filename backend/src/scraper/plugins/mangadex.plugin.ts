@@ -23,6 +23,19 @@ export class MangaDexPlugin implements IScraperPlugin {
     });
   }
 
+  /**
+   * Returns the list of languages to fetch from MangaDex.
+   * Configurable via MANGADEX_LANGUAGES env var (comma-separated).
+   * Defaults to English and Arabic.
+   */
+  private getLanguages(): string[] {
+    const envLangs = process.env.MANGADEX_LANGUAGES;
+    if (envLangs) {
+      return envLangs.split(',').map((l) => l.trim()).filter(Boolean);
+    }
+    return ['en', 'ar'];
+  }
+
   private async rateLimit(): Promise<void> {
     const now = Date.now();
     const elapsed = now - this.lastRequestTime;
@@ -107,6 +120,7 @@ export class MangaDexPlugin implements IScraperPlugin {
 
   async getLatestManga(page: number): Promise<MangaResult[]> {
     try {
+      const languages = this.getLanguages();
       await this.rateLimit();
       const response = await this.client.get('/manga', {
         params: {
@@ -114,7 +128,7 @@ export class MangaDexPlugin implements IScraperPlugin {
           'includes[]': ['cover_art', 'author', 'artist'],
           limit: 20,
           offset: page * 20,
-          'availableTranslatedLanguage[]': 'en',
+          'availableTranslatedLanguage[]': languages,
           'contentRating[]': ['safe', 'suggestive'],
         },
       });
@@ -132,6 +146,7 @@ export class MangaDexPlugin implements IScraperPlugin {
 
   async searchManga(query: string, page: number): Promise<MangaResult[]> {
     try {
+      const languages = this.getLanguages();
       await this.rateLimit();
       const response = await this.client.get('/manga', {
         params: {
@@ -140,7 +155,7 @@ export class MangaDexPlugin implements IScraperPlugin {
           'includes[]': ['cover_art', 'author', 'artist'],
           limit: 20,
           offset: page * 20,
-          'availableTranslatedLanguage[]': 'en',
+          'availableTranslatedLanguage[]': languages,
           'contentRating[]': ['safe', 'suggestive'],
         },
       });
@@ -180,13 +195,14 @@ export class MangaDexPlugin implements IScraperPlugin {
     const allChapters: ChapterResult[] = [];
     let offset = 0;
     const limit = 100;
+    const languages = this.getLanguages();
 
     try {
       while (true) {
         await this.rateLimit();
         const response = await this.client.get(`/manga/${mangaId}/feed`, {
           params: {
-            'translatedLanguage[]': 'en',
+            'translatedLanguage[]': languages,
             'order[chapter]': 'desc',
             limit,
             offset,
@@ -209,6 +225,7 @@ export class MangaDexPlugin implements IScraperPlugin {
             publishedAt: attrs.publishAt
               ? new Date(attrs.publishAt)
               : undefined,
+            language: attrs.translatedLanguage || 'en',
           });
         }
 

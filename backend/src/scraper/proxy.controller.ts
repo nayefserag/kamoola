@@ -19,6 +19,9 @@ export class ProxyController {
     madara: process.env.MADARA_BASE_URL
       ? `${process.env.MADARA_BASE_URL}/`
       : 'https://manhuaplus.top/',
+    olympustaff: process.env.OLYMPUSTAFF_BASE_URL
+      ? `${process.env.OLYMPUSTAFF_BASE_URL}/`
+      : 'https://olympustaff.com/',
   };
 
   @Get()

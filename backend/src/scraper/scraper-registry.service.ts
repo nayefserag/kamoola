@@ -4,6 +4,7 @@ import { MangaDexPlugin } from './plugins/mangadex.plugin';
 import { MangaKakalotPlugin } from './plugins/mangakakalot.plugin';
 import { AsuraScansPlugin } from './plugins/asurascans.plugin';
 import { MadaraPlugin } from './plugins/madara.plugin';
+import { OlympusStaffPlugin } from './plugins/olympustaff.plugin';
 
 @Injectable()
 export class ScraperRegistryService {
@@ -15,11 +16,13 @@ export class ScraperRegistryService {
     private readonly mangaKakalotPlugin: MangaKakalotPlugin,
     private readonly asuraScansPlugin: AsuraScansPlugin,
     private readonly madaraPlugin: MadaraPlugin,
+    private readonly olympusStaffPlugin: OlympusStaffPlugin,
   ) {
     this.register(mangaDexPlugin);
     this.register(mangaKakalotPlugin);
     this.register(asuraScansPlugin);
     this.register(madaraPlugin);
+    this.register(olympusStaffPlugin);
   }
 
   private register(plugin: IScraperPlugin): void {

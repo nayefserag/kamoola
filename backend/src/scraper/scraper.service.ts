@@ -92,6 +92,7 @@ export class ScraperService {
               const savedManga = await this.mangaService.upsert({
                 ...manga,
                 source: plugin.sourceName,
+                language: manga.language || 'en',
               });
               mangaCount++;
 
@@ -107,6 +108,7 @@ export class ScraperService {
                       sourceUrl: chapter.sourceUrl,
                       publishedAt: chapter.publishedAt,
                       source: plugin.sourceName,
+                      language: chapter.language || manga.language || 'en',
                     });
                     chapterCount++;
                   } catch (error: any) {
@@ -208,6 +210,7 @@ export class ScraperService {
                   sourceUrl: chapter.sourceUrl,
                   publishedAt: chapter.publishedAt,
                   source,
+                  language: chapter.language || (manga as any).language || 'en',
                 });
                 chapterCount++;
               } catch (error: any) {

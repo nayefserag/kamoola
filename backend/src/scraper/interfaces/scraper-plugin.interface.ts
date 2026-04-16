@@ -8,6 +8,7 @@ export interface MangaResult {
   description?: string;
   coverImage?: string;
   sourceUrl: string;
+  language?: string;
 }
 
 export interface ChapterResult {
@@ -15,6 +16,7 @@ export interface ChapterResult {
   title?: string;
   sourceUrl: string;
   publishedAt?: Date;
+  language?: string;
 }
 
 export interface PageResult {

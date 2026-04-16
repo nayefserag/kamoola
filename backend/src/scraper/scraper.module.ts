@@ -3,6 +3,7 @@ import { MangaDexPlugin } from './plugins/mangadex.plugin';
 import { MangaKakalotPlugin } from './plugins/mangakakalot.plugin';
 import { AsuraScansPlugin } from './plugins/asurascans.plugin';
 import { MadaraPlugin } from './plugins/madara.plugin';
+import { OlympusStaffPlugin } from './plugins/olympustaff.plugin';
 import { ScraperRegistryService } from './scraper-registry.service';
 import { ScraperService } from './scraper.service';
 import { ScraperController } from './scraper.controller';
@@ -24,6 +25,7 @@ import { ChapterModule } from '../chapter/chapter.module';
     MangaKakalotPlugin,
     AsuraScansPlugin,
     MadaraPlugin,
+    OlympusStaffPlugin,
     ScraperRegistryService,
     ScraperService,
   ],
