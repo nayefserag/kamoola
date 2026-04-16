@@ -14,6 +14,12 @@ export class SchedulerService {
   private readonly logger = new Logger(SchedulerService.name);
 
   private readonly jobRecords: Record<string, JobRunRecord> = {
+    frequentChapterCheck: {
+      lastRunAt: null,
+      lastResult: null,
+      lastError: null,
+      isRunning: false,
+    },
     dailyChapterCheck: {
       lastRunAt: null,
       lastResult: null,
@@ -32,6 +38,56 @@ export class SchedulerService {
     private readonly scraperService: ScraperService,
     private readonly schedulerRegistry: SchedulerRegistry,
   ) {}
+
+  /**
+   * Every 5 minutes - Quick check for new chapters on existing manga.
+   */
+  @Cron('*/5 * * * *', { name: 'frequentChapterCheck', timeZone: 'UTC' })
+  async handleFrequentChapterCheck(): Promise<void> {
+    const jobName = 'frequentChapterCheck';
+    this.logger.log('Starting 5-minute chapter check...');
+
+    if (this.jobRecords[jobName].isRunning) {
+      this.logger.warn(
+        '5-minute chapter check is already running. Skipping this invocation.',
+      );
+      return;
+    }
+
+    const scraperStatus = this.scraperService.getStatus();
+    if (scraperStatus.isRunning) {
+      this.logger.warn('Scraper is already running. Skipping 5-minute check.');
+      return;
+    }
+
+    this.jobRecords[jobName].isRunning = true;
+    this.jobRecords[jobName].lastError = null;
+
+    try {
+      const result = await this.scraperService.checkForUpdates();
+      this.jobRecords[jobName].lastResult = { ...result };
+      this.jobRecords[jobName].lastRunAt = new Date();
+
+      this.logger.log(
+        `5-minute check complete. New chapters found: ${result.chapterCount}. Errors: ${result.errors.length}`,
+      );
+
+      if (result.errors.length > 0) {
+        result.errors.forEach((err: string) =>
+          this.logger.error(`Scrape error: ${err}`),
+        );
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : undefined;
+      this.jobRecords[jobName].lastError = message;
+      this.jobRecords[jobName].lastRunAt = new Date();
+      this.logger.error(`5-minute chapter check failed: ${message}`, stack);
+    } finally {
+      this.jobRecords[jobName].isRunning = false;
+    }
+  }
 
   /**
    * Daily at midnight (12:00 AM UTC) - Check for new chapters on existing manga.
