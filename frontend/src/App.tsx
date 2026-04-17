@@ -6,6 +6,7 @@ import BrowsePage from '@/pages/BrowsePage';
 import MangaDetailPage from '@/pages/MangaDetailPage';
 import ReaderPage from '@/pages/ReaderPage';
 import SearchResultsPage from '@/pages/SearchResultsPage';
+import AdminPage from '@/pages/AdminPage';
 
 function App() {
   const location = useLocation();
@@ -22,6 +23,7 @@ function App() {
           <Route path="/browse" element={<BrowsePage />} />
           <Route path="/manga/:id" element={<MangaDetailPage />} />
           <Route path="/search" element={<SearchResultsPage />} />
+          <Route path="/admin" element={<AdminPage />} />
         </Route>
       </Routes>
     </AnimatePresence>

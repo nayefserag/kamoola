@@ -1,8 +1,9 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Inject, forwardRef } from '@nestjs/common';
 import { ScraperRegistryService } from './scraper-registry.service';
 import { MangaResult, IScraperPlugin } from './interfaces/scraper-plugin.interface';
 import { MangaService } from '../manga/manga.service';
 import { ChapterService } from '../chapter/chapter.service';
+import { LogService } from './log.service';
 
 export interface ScrapeSummary {
   mangaCount: number;
@@ -13,14 +14,15 @@ export interface ScrapeSummary {
 
 export interface ScraperStatus {
   isRunning: boolean;
+  stopRequested: boolean;
   lastRunAt: Date | null;
   errors: string[];
 }
 
 @Injectable()
 export class ScraperService {
-  private readonly logger = new Logger(ScraperService.name);
   private isRunning = false;
+  private stopRequested = false;
   private lastRunAt: Date | null = null;
   private errors: string[] = [];
 
@@ -30,14 +32,23 @@ export class ScraperService {
     private readonly mangaService: MangaService,
     @Inject(forwardRef(() => ChapterService))
     private readonly chapterService: ChapterService,
+    private readonly logService: LogService,
   ) {}
 
   getStatus(): ScraperStatus {
     return {
       isRunning: this.isRunning,
+      stopRequested: this.stopRequested,
       lastRunAt: this.lastRunAt,
       errors: [...this.errors],
     };
+  }
+
+  stop() {
+    if (!this.isRunning) return { message: 'No scrape running' };
+    this.stopRequested = true;
+    this.logService.warn('Stop requested — will halt after current item completes', 'Scraper');
+    return { message: 'Stop signal sent' };
   }
 
   async runFullScrape(source?: string): Promise<ScrapeSummary> {
@@ -46,10 +57,13 @@ export class ScraperService {
     }
 
     this.isRunning = true;
+    this.stopRequested = false;
     this.errors = [];
     const startTime = Date.now();
     let mangaCount = 0;
     let chapterCount = 0;
+
+    this.logService.info(`Full scrape started${source ? ` — source: ${source}` : ' — all sources'}`, 'Scraper');
 
     try {
       const plugins = source
@@ -57,22 +71,24 @@ export class ScraperService {
         : this.registry.getAllPlugins();
 
       if (plugins.length === 0) {
-        throw new Error(
-          source
-            ? `No plugin found for source: ${source}`
-            : 'No plugins registered',
-        );
+        throw new Error(source ? `No plugin found for source: ${source}` : 'No plugins registered');
       }
 
       for (const plugin of plugins) {
-        this.logger.log(`Starting scrape for source: ${plugin.sourceName}`);
+        if (this.stopRequested) {
+          this.logService.warn('Scrape stopped by user request', 'Scraper');
+          break;
+        }
+
+        this.logService.info(`Starting scrape: ${plugin.sourceName}`, plugin.sourceName);
 
         try {
-          // Fetch latest manga across all pages until an empty page is hit.
-          // Hard cap at 500 pages as a safety belt.
           const allManga: MangaResult[] = [];
           const seenUrls = new Set<string>();
+
           for (let page = 0; page < 500; page++) {
+            if (this.stopRequested) break;
+
             try {
               const mangaList = await plugin.getLatestManga(page);
               if (mangaList.length === 0) break;
@@ -83,22 +99,20 @@ export class ScraperService {
                 allManga.push(m);
                 added++;
               }
-              // Page returned only duplicates → we've wrapped past the end.
               if (added === 0) break;
             } catch (error: any) {
-              const errMsg = `${plugin.sourceName}: Failed to fetch page ${page}: ${error.message}`;
-              this.logger.error(errMsg);
-              this.errors.push(errMsg);
+              const msg = `${plugin.sourceName}: Failed page ${page}: ${error.message}`;
+              this.logService.error(msg, plugin.sourceName);
+              this.errors.push(msg);
               break;
             }
           }
 
-          this.logger.log(
-            `${plugin.sourceName}: Found ${allManga.length} manga entries`,
-          );
+          this.logService.info(`${plugin.sourceName}: Found ${allManga.length} manga`, plugin.sourceName);
 
-          // Upsert each manga and its chapters
           for (const manga of allManga) {
+            if (this.stopRequested) break;
+
             try {
               const savedManga = await this.mangaService.upsert({
                 ...manga,
@@ -107,10 +121,10 @@ export class ScraperService {
               });
               mangaCount++;
 
-              // Fetch and upsert chapters
               try {
                 const chapters = await plugin.getChapterList(manga.sourceUrl);
                 for (const chapter of chapters) {
+                  if (this.stopRequested) break;
                   try {
                     await this.chapterService.upsert({
                       mangaId: savedManga.id || savedManga._id,
@@ -123,30 +137,28 @@ export class ScraperService {
                     });
                     chapterCount++;
                   } catch (error: any) {
-                    const errMsg = `${plugin.sourceName}: Failed to upsert chapter ${chapter.chapterNumber} for "${manga.title}": ${error.message}`;
-                    this.logger.error(errMsg);
-                    this.errors.push(errMsg);
+                    const msg = `${plugin.sourceName}: Chapter ${chapter.chapterNumber} upsert failed for "${manga.title}": ${error.message}`;
+                    this.logService.error(msg, plugin.sourceName);
+                    this.errors.push(msg);
                   }
                 }
               } catch (error: any) {
-                const errMsg = `${plugin.sourceName}: Failed to fetch chapters for "${manga.title}": ${error.message}`;
-                this.logger.error(errMsg);
-                this.errors.push(errMsg);
+                const msg = `${plugin.sourceName}: Chapter fetch failed for "${manga.title}": ${error.message}`;
+                this.logService.error(msg, plugin.sourceName);
+                this.errors.push(msg);
               }
             } catch (error: any) {
-              const errMsg = `${plugin.sourceName}: Failed to upsert manga "${manga.title}": ${error.message}`;
-              this.logger.error(errMsg);
-              this.errors.push(errMsg);
+              const msg = `${plugin.sourceName}: Manga upsert failed "${manga.title}": ${error.message}`;
+              this.logService.error(msg, plugin.sourceName);
+              this.errors.push(msg);
             }
           }
 
-          this.logger.log(
-            `${plugin.sourceName}: Completed scrape`,
-          );
+          this.logService.success(`${plugin.sourceName}: Scrape complete`, plugin.sourceName);
         } catch (error: any) {
-          const errMsg = `${plugin.sourceName}: Plugin scrape failed: ${error.message}`;
-          this.logger.error(errMsg);
-          this.errors.push(errMsg);
+          const msg = `${plugin.sourceName}: Plugin failed: ${error.message}`;
+          this.logService.error(msg, plugin.sourceName);
+          this.errors.push(msg);
         }
       }
     } finally {
@@ -155,17 +167,12 @@ export class ScraperService {
     }
 
     const duration = Date.now() - startTime;
-
-    this.logger.log(
-      `Full scrape completed in ${duration}ms: ${mangaCount} manga, ${chapterCount} chapters, ${this.errors.length} errors`,
+    this.logService.success(
+      `Full scrape done in ${(duration / 1000).toFixed(1)}s — ${mangaCount} manga, ${chapterCount} chapters, ${this.errors.length} errors`,
+      'Scraper',
     );
 
-    return {
-      mangaCount,
-      chapterCount,
-      errors: [...this.errors],
-      duration,
-    };
+    return { mangaCount, chapterCount, errors: [...this.errors], duration };
   }
 
   async checkForUpdates(): Promise<ScrapeSummary> {
@@ -174,45 +181,43 @@ export class ScraperService {
     }
 
     this.isRunning = true;
+    this.stopRequested = false;
     this.errors = [];
     const startTime = Date.now();
     let mangaCount = 0;
     let chapterCount = 0;
 
+    this.logService.info('Chapter update check started', 'Scraper');
+
     try {
       const allManga = await this.mangaService.findAllRaw();
-      this.logger.log(
-        `Checking for updates across ${allManga.length} manga entries`,
-      );
+      this.logService.info(`Checking updates for ${allManga.length} manga`, 'Scraper');
 
       for (const manga of allManga) {
+        if (this.stopRequested) {
+          this.logService.warn('Update check stopped by user request', 'Scraper');
+          break;
+        }
+
         try {
           const source = manga.source as string;
           const plugin = this.registry.getPlugin(source);
           if (!plugin) {
-            this.logger.warn(
-              `No plugin found for source "${source}", skipping "${manga.title}"`,
-            );
+            this.logService.warn(`No plugin for source "${source}", skipping "${manga.title}"`, 'Scraper');
             continue;
           }
 
           const sourceUrl = manga.sourceUrl as string;
-          const latestChapterInDb = await this.chapterService.getLatestChapter(
-            manga.id || manga._id,
-          );
-
+          const latestInDb = await this.chapterService.getLatestChapter(manga.id || manga._id);
           const chapters = await plugin.getChapterList(sourceUrl);
-          const newChapters = chapters.filter(
-            (ch) => ch.chapterNumber > latestChapterInDb,
-          );
+          const newChapters = chapters.filter((ch) => ch.chapterNumber > latestInDb);
 
           if (newChapters.length > 0) {
-            this.logger.log(
-              `${source}: Found ${newChapters.length} new chapters for "${manga.title}"`,
-            );
+            this.logService.info(`${source}: ${newChapters.length} new chapters for "${manga.title}"`, source);
             mangaCount++;
 
             for (const chapter of newChapters) {
+              if (this.stopRequested) break;
               try {
                 await this.chapterService.upsert({
                   mangaId: manga.id || manga._id,
@@ -225,16 +230,16 @@ export class ScraperService {
                 });
                 chapterCount++;
               } catch (error: any) {
-                const errMsg = `${source}: Failed to upsert chapter ${chapter.chapterNumber} for "${manga.title}": ${error.message}`;
-                this.logger.error(errMsg);
-                this.errors.push(errMsg);
+                const msg = `${source}: Chapter upsert failed for "${manga.title}": ${error.message}`;
+                this.logService.error(msg, source);
+                this.errors.push(msg);
               }
             }
           }
         } catch (error: any) {
-          const errMsg = `Failed to check updates for "${manga.title}": ${error.message}`;
-          this.logger.error(errMsg);
-          this.errors.push(errMsg);
+          const msg = `Update check failed for "${manga.title}": ${error.message}`;
+          this.logService.error(msg, 'Scraper');
+          this.errors.push(msg);
         }
       }
     } finally {
@@ -243,16 +248,11 @@ export class ScraperService {
     }
 
     const duration = Date.now() - startTime;
-
-    this.logger.log(
-      `Update check completed in ${duration}ms: ${mangaCount} manga updated, ${chapterCount} new chapters, ${this.errors.length} errors`,
+    this.logService.success(
+      `Update check done in ${(duration / 1000).toFixed(1)}s — ${mangaCount} manga updated, ${chapterCount} new chapters, ${this.errors.length} errors`,
+      'Scraper',
     );
 
-    return {
-      mangaCount,
-      chapterCount,
-      errors: [...this.errors],
-      duration,
-    };
+    return { mangaCount, chapterCount, errors: [...this.errors], duration };
   }
 }

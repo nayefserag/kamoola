@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X } from 'lucide-react';
+import { Menu, X, Settings } from 'lucide-react';
 import SearchBar from '@/components/shared/SearchBar';
 import Logo from '@/components/shared/Logo';
 
@@ -20,6 +20,8 @@ function Navbar() {
     { to: '/', label: 'Home' },
     { to: '/browse', label: 'Browse' },
   ];
+
+  const adminLink = { to: '/admin', label: 'Admin', icon: Settings };
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -72,6 +74,17 @@ function Navbar() {
                 )}
               </Link>
             ))}
+            <Link
+              to={adminLink.to}
+              title="Admin"
+              className={`relative p-2 rounded-lg transition-colors ${
+                isActive(adminLink.to)
+                  ? 'text-accent bg-accent/10'
+                  : 'text-textSecondary hover:text-textPrimary hover:bg-white/5'
+              }`}
+            >
+              <Settings className="w-4 h-4" />
+            </Link>
           </div>
 
           {/* Mobile toggle */}

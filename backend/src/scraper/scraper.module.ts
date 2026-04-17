@@ -12,16 +12,16 @@ import { ScraperRegistryService } from './scraper-registry.service';
 import { ScraperService } from './scraper.service';
 import { ScraperController } from './scraper.controller';
 import { ProxyController } from './proxy.controller';
-
-// These modules will be provided by the application
-// Adjust the import paths to match your project structure
+import { LogService } from './log.service';
 import { MangaModule } from '../manga/manga.module';
 import { ChapterModule } from '../chapter/chapter.module';
+import { SchedulerModule } from '../scheduler/scheduler.module';
 
 @Module({
   imports: [
     forwardRef(() => MangaModule),
     forwardRef(() => ChapterModule),
+    forwardRef(() => SchedulerModule),
   ],
   controllers: [ScraperController, ProxyController],
   providers: [
@@ -36,7 +36,8 @@ import { ChapterModule } from '../chapter/chapter.module';
     GMangaPlugin,
     ScraperRegistryService,
     ScraperService,
+    LogService,
   ],
-  exports: [ScraperService, ScraperRegistryService],
+  exports: [ScraperService, ScraperRegistryService, LogService],
 })
 export class ScraperModule {}
