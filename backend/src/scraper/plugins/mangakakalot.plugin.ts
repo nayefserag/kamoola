@@ -8,6 +8,15 @@ import {
   PageResult,
 } from '../interfaces/scraper-plugin.interface';
 
+/**
+ * MangaKakalot — Cloudflare-protected. Uses got-scraping for browser TLS
+ * fingerprinting, falls back to axios.
+ *
+ * URL patterns (as of 2026-04):
+ *   Listing: /genre/all?type=newest&page=N  (primary)
+ *            /manga-list/latest-update?page=N  (legacy fallback)
+ *   Detail:  /manga/<slug>
+ */
 @Injectable()
 export class MangaKakalotPlugin implements IScraperPlugin {
   readonly sourceName = 'mangakakalot';
@@ -15,6 +24,7 @@ export class MangaKakalotPlugin implements IScraperPlugin {
 
   private readonly logger = new Logger(MangaKakalotPlugin.name);
   private readonly client: AxiosInstance;
+  private gotScrapingPromise: Promise<any> | undefined;
 
   constructor() {
     this.baseUrl = process.env.MANGAKAKALOT_BASE_URL || 'https://www.mangakakalot.gg';
@@ -32,6 +42,39 @@ export class MangaKakalotPlugin implements IScraperPlugin {
     });
   }
 
+  private async getGotScraping(): Promise<any> {
+    if (!this.gotScrapingPromise) {
+      this.gotScrapingPromise = (
+        new Function('return import("got-scraping")') as () => Promise<any>
+      )().then((mod) => mod.gotScraping);
+    }
+    return this.gotScrapingPromise;
+  }
+
+  private async fetchHtml(path: string): Promise<string> {
+    const url = path.startsWith('http') ? path : `${this.baseUrl}${path}`;
+    try {
+      const gotScraping = await this.getGotScraping();
+      const res = await gotScraping({
+        url,
+        timeout: { request: 60000 },
+        headerGeneratorOptions: {
+          browsers: [{ name: 'chrome', minVersion: 120 }],
+          devices: ['desktop'],
+          operatingSystems: ['windows'],
+          locales: ['en-US'],
+        },
+      });
+      return res.body as string;
+    } catch (err: any) {
+      this.logger.warn(
+        `got-scraping failed for ${url}, falling back to axios: ${err.message}`,
+      );
+      const res = await this.client.get(url);
+      return res.data as string;
+    }
+  }
+
   private resolveUrl(href: string): string {
     if (!href) return '';
     if (href.startsWith('http')) return href;
@@ -41,55 +84,115 @@ export class MangaKakalotPlugin implements IScraperPlugin {
   }
 
   async getLatestManga(page: number): Promise<MangaResult[]> {
-    try {
-      const url = `/manga-list/latest-update?page=${page + 1}`;
-      const response = await this.client.get(url);
-      const $ = cheerio.load(response.data);
-      const results: MangaResult[] = [];
+    // Try the modern URL first, then fall back to the legacy path
+    const urls = [
+      `/genre/all?type=newest&page=${page + 1}`,
+      `/manga-list/latest-update?page=${page + 1}`,
+      `/manga_list?type=latest&category=all&state=all&page=${page + 1}`,
+    ];
 
-      $('div.content-genres-item, div.list-story-item').each((_i, el) => {
-        const $el = $(el);
-        const linkEl = $el.find('a.genres-item-img, a.story-item-img').first();
-        const href = linkEl.attr('href') || '';
-        const title =
-          linkEl.attr('title') ||
-          $el.find('h3 a, .genres-item-name, .story-item-title').text().trim();
-        const coverImage =
-          $el.find('img').attr('src') || $el.find('img').attr('data-src') || '';
-
-        if (title && href) {
-          results.push({
-            title,
-            coverImage: this.resolveUrl(coverImage),
-            sourceUrl: this.resolveUrl(href),
-          });
+    for (const url of urls) {
+      try {
+        const html = await this.fetchHtml(url);
+        const results = this.parseListing(html);
+        if (results.length > 0) {
+          this.logger.debug(`getLatestManga page ${page}: found ${results.length} via ${url}`);
+          return results;
         }
-      });
-
-      return results;
-    } catch (error: any) {
-      this.handleError('getLatestManga', error);
-      return [];
+      } catch (error: any) {
+        this.logger.warn(`${url} failed: ${error.message}`);
+      }
     }
+
+    return [];
+  }
+
+  private parseListing(html: string): MangaResult[] {
+    const $ = cheerio.load(html);
+    const results: MangaResult[] = [];
+    const seen = new Set<string>();
+
+    // Broad selector: any card-style element on the listing pages
+    $(
+      'div.content-genres-item, div.list-story-item, ' +
+      'div.list-truyen-item-wrap, div.item, div.story-item, ' +
+      'div.genres-item, div.list_category_item',
+    ).each((_i, el) => {
+      const $el = $(el);
+      const linkEl = $el
+        .find(
+          'a.genres-item-img, a.story-item-img, a.list-story-item-image, ' +
+          'a.item-img, h3 a, a',
+        )
+        .first();
+      const href = linkEl.attr('href') || '';
+      if (!href) return;
+      if (seen.has(href)) return;
+
+      const title =
+        linkEl.attr('title') ||
+        $el.find('h3 a, .genres-item-name, .story-item-title, .item-title').text().trim() ||
+        $el.find('img').attr('alt') ||
+        '';
+      const coverImage =
+        $el.find('img').attr('data-src') ||
+        $el.find('img').attr('src') ||
+        '';
+
+      if (title && href) {
+        seen.add(href);
+        results.push({
+          title,
+          coverImage: this.resolveUrl(coverImage),
+          sourceUrl: this.resolveUrl(href),
+        });
+      }
+    });
+
+    // Broader fallback: find any link to /manga/<slug>
+    if (results.length === 0) {
+      $('a[href*="/manga/"]').each((_i, el) => {
+        const $a = $(el);
+        const href = $a.attr('href') || '';
+        if (!href || seen.has(href)) return;
+        // Skip chapter links
+        if (/\/chapter[-\/]/i.test(href)) return;
+        const $img = $a.find('img').first();
+        const title = ($a.attr('title') || $img.attr('alt') || $a.text().trim()).trim();
+        if (!title || title.length < 2) return;
+        const coverImage = $img.attr('data-src') || $img.attr('src') || '';
+        seen.add(href);
+        results.push({
+          title,
+          coverImage: this.resolveUrl(coverImage),
+          sourceUrl: this.resolveUrl(href),
+        });
+      });
+    }
+
+    return results;
   }
 
   async searchManga(query: string, page: number): Promise<MangaResult[]> {
     try {
       const encodedQuery = encodeURIComponent(query).replace(/%20/g, '_');
-      const url = `/search/story/${encodedQuery}?page=${page + 1}`;
-      const response = await this.client.get(url);
-      const $ = cheerio.load(response.data);
+      const html = await this.fetchHtml(`/search/story/${encodedQuery}?page=${page + 1}`);
+      const $ = cheerio.load(html);
       const results: MangaResult[] = [];
 
-      $('div.search-story-item, div.story_item').each((_i, el) => {
+      $('div.search-story-item, div.story_item, div.list-story-item').each((_i, el) => {
         const $el = $(el);
-        const linkEl = $el.find('a.item-img, a.story_item_img').first();
+        const linkEl = $el.find('a.item-img, a.story_item_img, a').first();
         const href = linkEl.attr('href') || '';
         const title =
           linkEl.attr('title') ||
-          $el.find('h3 a, .item-title').text().trim();
+          $el.find('h3 a, .item-title').text().trim() ||
+          $el.find('img').attr('alt') ||
+          '';
         const coverImage =
-          $el.find('img').attr('src') || $el.find('img').attr('data-src') || '';
+          $el.find('img').attr('data-src') ||
+          $el.find('img').attr('src') ||
+          '';
 
         if (title && href) {
           results.push({
@@ -102,30 +205,32 @@ export class MangaKakalotPlugin implements IScraperPlugin {
 
       return results;
     } catch (error: any) {
-      this.handleError('searchManga', error);
+      this.logger.error(`searchManga "${query}" page ${page} failed: ${error.message}`);
       return [];
     }
   }
 
   async getMangaDetail(sourceUrl: string): Promise<MangaResult> {
     try {
-      const response = await this.client.get(sourceUrl);
-      const $ = cheerio.load(response.data);
+      const html = await this.fetchHtml(sourceUrl);
+      const $ = cheerio.load(html);
 
-      const title = $(
-        'h1.manga-info-text, h1, div.manga-info-top h1, ul.manga-info-text li h1',
-      )
-        .first()
-        .text()
-        .trim();
+      const title =
+        $('h1.manga-info-text, h1, div.manga-info-top h1, ul.manga-info-text li h1, h1.story-info-right-info-title, div.panel-story-info h1')
+          .first()
+          .text()
+          .trim() ||
+        $('meta[property="og:title"]').attr('content')?.trim() ||
+        'Unknown';
 
       const coverImage =
-        $('div.manga-info-pic img, div.story-info-left img').attr('src') ||
-        $('div.manga-info-pic img, div.story-info-left img').attr('data-src') ||
+        $('div.manga-info-pic img, div.story-info-left img, div.info-image img').attr('src') ||
+        $('div.manga-info-pic img, div.story-info-left img, div.info-image img').attr('data-src') ||
+        $('meta[property="og:image"]').attr('content') ||
         '';
 
       const altTitlesText = $(
-        'td:contains("Alternative"), li:contains("Alternative")',
+        'td:contains("Alternative"), li:contains("Alternative"), h2.story-alternative',
       )
         .first()
         .text()
@@ -147,7 +252,7 @@ export class MangaKakalotPlugin implements IScraperPlugin {
       });
 
       const genres: string[] = [];
-      $('td:contains("Genres") a, li:contains("Genres") a').each((_i, el) => {
+      $('td:contains("Genres") a, li:contains("Genres") a, div.manga-info-top li.genres a').each((_i, el) => {
         const genre = $(el).text().trim();
         if (genre) genres.push(genre);
       });
@@ -169,7 +274,7 @@ export class MangaKakalotPlugin implements IScraperPlugin {
       const status = statusMap[statusText] || undefined;
 
       const description = $(
-        'div#noidungm, div.panel-story-info-description, div.manga-info-desc',
+        'div#noidungm, div.panel-story-info-description, div.manga-info-desc, div#panel-story-info-description',
       )
         .first()
         .text()
@@ -177,7 +282,7 @@ export class MangaKakalotPlugin implements IScraperPlugin {
         .trim();
 
       return {
-        title: title || 'Unknown',
+        title,
         alternativeTitles,
         author,
         genres: genres.length > 0 ? genres : undefined,
@@ -194,12 +299,14 @@ export class MangaKakalotPlugin implements IScraperPlugin {
 
   async getChapterList(sourceUrl: string): Promise<ChapterResult[]> {
     try {
-      const response = await this.client.get(sourceUrl);
-      const $ = cheerio.load(response.data);
+      const html = await this.fetchHtml(sourceUrl);
+      const $ = cheerio.load(html);
       const chapters: ChapterResult[] = [];
 
       $(
-        'div.chapter-list div.row a, ul.row-content-chapter li a, div.manga-info-chapter div.row span a',
+        'div.chapter-list div.row a, ul.row-content-chapter li a, ' +
+        'div.manga-info-chapter div.row span a, div.panel-story-chapter-list a, ' +
+        'ul.chapter-list li a',
       ).each((_i, el) => {
         const $el = $(el);
         const href = $el.attr('href') || '';
@@ -231,11 +338,11 @@ export class MangaKakalotPlugin implements IScraperPlugin {
 
   async getPageList(chapterUrl: string): Promise<PageResult[]> {
     try {
-      const response = await this.client.get(chapterUrl);
-      const $ = cheerio.load(response.data);
+      const html = await this.fetchHtml(chapterUrl);
+      const $ = cheerio.load(html);
       const pages: PageResult[] = [];
 
-      $('div.container-chapter-reader img').each((i, el) => {
+      $('div.container-chapter-reader img, div.vung-doc img').each((i, el) => {
         const $img = $(el);
         const imageUrl =
           $img.attr('data-src') || $img.attr('src') || '';

@@ -20,6 +20,7 @@ export abstract class ArabicMadaraBasePlugin implements IScraperPlugin {
 
   protected readonly logger: Logger;
   protected client!: AxiosInstance;
+  private gotScrapingPromise: Promise<any> | undefined;
 
   constructor(loggerContext: string) {
     this.logger = new Logger(loggerContext);
@@ -39,6 +40,42 @@ export abstract class ArabicMadaraBasePlugin implements IScraperPlugin {
         'Accept-Language': 'ar,en;q=0.5',
       },
     });
+  }
+
+  private async getGotScraping(): Promise<any> {
+    if (!this.gotScrapingPromise) {
+      this.gotScrapingPromise = (
+        new Function('return import("got-scraping")') as () => Promise<any>
+      )().then((mod) => mod.gotScraping);
+    }
+    return this.gotScrapingPromise;
+  }
+
+  /**
+   * Fetch HTML using got-scraping (Cloudflare-friendly) with an axios fallback.
+   */
+  protected async fetchHtml(path: string): Promise<string> {
+    const url = path.startsWith('http') ? path : `${this.baseUrl}${path}`;
+    try {
+      const gotScraping = await this.getGotScraping();
+      const res = await gotScraping({
+        url,
+        timeout: { request: 60000 },
+        headerGeneratorOptions: {
+          browsers: [{ name: 'chrome', minVersion: 120 }],
+          devices: ['desktop'],
+          operatingSystems: ['windows'],
+          locales: ['ar-SA', 'en-US'],
+        },
+      });
+      return res.body as string;
+    } catch (err: any) {
+      this.logger.warn(
+        `got-scraping failed for ${url}, falling back to axios: ${err.message}`,
+      );
+      const res = await this.client.get(url);
+      return res.data as string;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -117,47 +154,68 @@ export abstract class ArabicMadaraBasePlugin implements IScraperPlugin {
   // ---------------------------------------------------------------------------
 
   async getLatestManga(page: number): Promise<MangaResult[]> {
-    try {
-      const url = `/page/${page + 1}/?m_orderby=latest`;
-      const response = await this.client.get(url);
-      const $ = cheerio.load(response.data);
-      const results: MangaResult[] = [];
+    // Try multiple common Madara listing URL patterns
+    const urls = [
+      `/page/${page + 1}/?m_orderby=latest`,
+      `/manga/page/${page + 1}/?m_orderby=latest`,
+      `/?m_orderby=latest&page=${page + 1}`,
+    ];
 
-      $('div.page-item-detail, div.manga-item, div.manga').each((_i, el) => {
-        const $el = $(el);
-        const linkEl = $el.find('a').first();
-        const href = linkEl.attr('href') || '';
-        const title =
-          $el.find('h3 a, h5 a, .post-title a').text().trim() ||
-          linkEl.attr('title') ||
-          '';
-        const coverImage =
-          $el.find('img').attr('data-src') ||
-          $el.find('img').attr('src') ||
-          '';
+    for (const url of urls) {
+      try {
+        const html = await this.fetchHtml(url);
+        const $ = cheerio.load(html);
+        const results: MangaResult[] = [];
+        const seen = new Set<string>();
 
-        if (title && href) {
-          results.push({
-            title,
-            coverImage: this.resolveUrl(coverImage.trim()),
-            sourceUrl: this.resolveUrl(href),
-            language: 'ar',
-          });
+        $(
+          'div.page-item-detail, div.manga-item, div.manga, ' +
+          'div.c-tabs-item__content, div.row.c-tabs-item__content',
+        ).each((_i, el) => {
+          const $el = $(el);
+          const linkEl = $el.find('.post-title a, h3 a, h5 a, a').first();
+          const href = linkEl.attr('href') || '';
+          if (!href || seen.has(href)) return;
+          const title =
+            $el.find('h3 a, h5 a, .post-title a').text().trim() ||
+            linkEl.attr('title') ||
+            $el.find('img').attr('alt') ||
+            '';
+          const coverImage =
+            $el.find('img').attr('data-src') ||
+            $el.find('img').attr('src') ||
+            '';
+
+          if (title && title.length > 1) {
+            seen.add(href);
+            results.push({
+              title,
+              coverImage: this.resolveUrl(coverImage.trim()),
+              sourceUrl: this.resolveUrl(href),
+              language: 'ar',
+            });
+          }
+        });
+
+        if (results.length > 0) {
+          this.logger.debug(
+            `getLatestManga page ${page}: ${results.length} via ${url}`,
+          );
+          return results;
         }
-      });
-
-      return results;
-    } catch (error: any) {
-      this.logger.error(`getLatestManga page ${page} failed: ${error.message}`);
-      return [];
+      } catch (error: any) {
+        this.logger.warn(`${url} failed: ${error.message}`);
+      }
     }
+
+    return [];
   }
 
   async searchManga(query: string, page: number): Promise<MangaResult[]> {
     try {
       const url = `/page/${page + 1}/?s=${encodeURIComponent(query)}&post_type=wp-manga`;
-      const response = await this.client.get(url);
-      const $ = cheerio.load(response.data);
+      const html = await this.fetchHtml(url);
+      const $ = cheerio.load(html);
       const results: MangaResult[] = [];
 
       $('div.c-tabs-item__content, div.row.c-tabs-item__content').each(
@@ -193,8 +251,8 @@ export abstract class ArabicMadaraBasePlugin implements IScraperPlugin {
 
   async getMangaDetail(sourceUrl: string): Promise<MangaResult> {
     try {
-      const response = await this.client.get(sourceUrl);
-      const $ = cheerio.load(response.data);
+      const html = await this.fetchHtml(sourceUrl);
+      const $ = cheerio.load(html);
 
       const title =
         $('h1.post-title').text().trim() ||
@@ -385,14 +443,14 @@ export abstract class ArabicMadaraBasePlugin implements IScraperPlugin {
   private async scrapeChaptersFromPage(
     sourceUrl: string,
   ): Promise<ChapterResult[]> {
-    const response = await this.client.get(sourceUrl);
-    return this.parseChaptersHtml(response.data);
+    const html = await this.fetchHtml(sourceUrl);
+    return this.parseChaptersHtml(html);
   }
 
   async getPageList(chapterUrl: string): Promise<PageResult[]> {
     try {
-      const response = await this.client.get(chapterUrl);
-      const $ = cheerio.load(response.data);
+      const html = await this.fetchHtml(chapterUrl);
+      const $ = cheerio.load(html);
       const pages: PageResult[] = [];
 
       $('div.reading-content img').each((i, el) => {

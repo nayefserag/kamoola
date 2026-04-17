@@ -8,34 +8,83 @@ import {
   PageResult,
 } from '../interfaces/scraper-plugin.interface';
 
-const API_BASE = 'https://api.asurascans.com';
-const SITE_BASE = 'https://asurascans.com';
-const LIMIT = 20;
+/**
+ * AsuraScans — the site moved from asurascans.com to asuracomic.net.
+ * It's a Next.js app; we parse the __NEXT_DATA__ JSON blob from each
+ * rendered page. Cloudflare-protected, so we use got-scraping.
+ *
+ * URL patterns:
+ *   Listing:  /series?page=N
+ *   Detail:   /series/<slug>
+ *   Chapter:  /series/<slug>/chapter/<n>
+ */
+
+const DEFAULT_BASE = 'https://asuracomic.net';
 
 @Injectable()
 export class AsuraScansPlugin implements IScraperPlugin {
   readonly sourceName = 'asurascans';
-  readonly baseUrl = SITE_BASE;
+  readonly baseUrl: string;
 
   private readonly logger = new Logger(AsuraScansPlugin.name);
-  private readonly api: AxiosInstance;
+  private readonly client: AxiosInstance;
+  private gotScrapingPromise: Promise<any> | undefined;
 
   constructor() {
-    this.api = axios.create({
-      baseURL: API_BASE,
+    this.baseUrl = process.env.ASURASCANS_BASE_URL || DEFAULT_BASE;
+    this.client = axios.create({
+      baseURL: this.baseUrl,
       timeout: 15000,
       headers: {
-        accept: '*/*',
-        'accept-language': 'en-US,en;q=0.9',
-        origin: SITE_BASE,
-        referer: `${SITE_BASE}/`,
-        'user-agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0',
-        'sec-fetch-dest': 'empty',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-site',
+        Referer: `${this.baseUrl}/`,
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept:
+          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
       },
     });
+  }
+
+  private async getGotScraping(): Promise<any> {
+    if (!this.gotScrapingPromise) {
+      this.gotScrapingPromise = (
+        new Function('return import("got-scraping")') as () => Promise<any>
+      )().then((mod) => mod.gotScraping);
+    }
+    return this.gotScrapingPromise;
+  }
+
+  private async fetchHtml(path: string): Promise<string> {
+    const url = path.startsWith('http') ? path : `${this.baseUrl}${path}`;
+    try {
+      const gotScraping = await this.getGotScraping();
+      const res = await gotScraping({
+        url,
+        timeout: { request: 60000 },
+        headerGeneratorOptions: {
+          browsers: [{ name: 'chrome', minVersion: 120 }],
+          devices: ['desktop'],
+          operatingSystems: ['windows'],
+          locales: ['en-US'],
+        },
+      });
+      return res.body as string;
+    } catch (err: any) {
+      this.logger.warn(
+        `got-scraping failed for ${url}, falling back to axios: ${err.message}`,
+      );
+      const res = await this.client.get(url);
+      return res.data as string;
+    }
+  }
+
+  private resolveUrl(href: string): string {
+    if (!href) return '';
+    if (href.startsWith('http')) return href;
+    if (href.startsWith('//')) return `https:${href}`;
+    if (href.startsWith('/')) return `${this.baseUrl}${href}`;
+    return `${this.baseUrl}/${href}`;
   }
 
   private stripHtml(html: string): string {
@@ -45,53 +94,146 @@ export class AsuraScansPlugin implements IScraperPlugin {
 
   private mapStatus(s?: string): MangaResult['status'] | undefined {
     if (!s) return undefined;
-    const map: Record<string, MangaResult['status']> = {
-      ongoing: 'ongoing',
-      completed: 'completed',
-      hiatus: 'hiatus',
-      dropped: 'cancelled',
-      cancelled: 'cancelled',
-    };
-    return map[s.toLowerCase()] ?? undefined;
+    const l = s.toLowerCase().trim();
+    if (l.includes('ongoing')) return 'ongoing';
+    if (l.includes('completed') || l.includes('finished')) return 'completed';
+    if (l.includes('hiatus') || l.includes('season end') || l.includes('on hold')) return 'hiatus';
+    if (l.includes('dropped') || l.includes('cancel')) return 'cancelled';
+    return undefined;
   }
 
-  private seriesApiUrl(id: number | string) {
-    return `${API_BASE}/api/series/${id}`;
+  private extractNextData(html: string): any | null {
+    const $ = cheerio.load(html);
+    const scriptEl = $('script#__NEXT_DATA__');
+    if (!scriptEl.length) return null;
+    try {
+      return JSON.parse(scriptEl.html() || '{}');
+    } catch {
+      return null;
+    }
   }
 
-  private mapSeries(item: any): MangaResult {
+  private mapSeries(item: any): MangaResult | null {
+    if (!item) return null;
+    const title = item.title || item.name || item.seriesTitle || '';
+    if (!title) return null;
+    const slug = item.slug || item.series_slug || item.id || '';
+    const cover =
+      item.cover ||
+      item.thumbnail ||
+      item.coverImage ||
+      item.image ||
+      item.poster ||
+      '';
+    const genres = (item.genres || item.categories || [])
+      .map((g: any) => (typeof g === 'string' ? g : g.name || g.title || ''))
+      .filter(Boolean);
+
     return {
-      title: item.title || 'Unknown',
-      alternativeTitles: item.alt_titles?.length ? item.alt_titles : undefined,
+      title,
+      alternativeTitles: item.alternative_titles || item.alt_titles || undefined,
       author: item.author || undefined,
       artist: item.artist || undefined,
-      description: item.description ? this.stripHtml(item.description) : undefined,
-      coverImage: item.cover || undefined,
-      genres: item.genres?.map((g: any) => g.name as string).filter(Boolean) || undefined,
+      description: item.description
+        ? this.stripHtml(item.description)
+        : undefined,
+      coverImage: cover ? this.resolveUrl(cover) : undefined,
+      genres: genres.length > 0 ? genres : undefined,
       status: this.mapStatus(item.status),
-      // Store the REST API URL so getMangaDetail / getChapterList can re-use it
-      sourceUrl: this.seriesApiUrl(item.id),
+      sourceUrl: slug
+        ? `${this.baseUrl}/series/${slug}`
+        : this.resolveUrl(item.url || ''),
     };
   }
 
   async getLatestManga(page: number): Promise<MangaResult[]> {
     try {
-      const { data } = await this.api.get('/api/series', {
-        params: { sort: 'latest', order: 'desc', limit: LIMIT, offset: page * LIMIT },
-      });
-      return (data.data ?? []).map((item: any) => this.mapSeries(item));
+      const html = await this.fetchHtml(`/series?page=${page + 1}`);
+
+      // First try __NEXT_DATA__
+      const data = this.extractNextData(html);
+      if (data) {
+        const pp = data?.props?.pageProps || {};
+        const list =
+          pp?.series?.data ||
+          pp?.series ||
+          pp?.data?.series ||
+          pp?.data ||
+          pp?.results ||
+          [];
+        if (Array.isArray(list) && list.length > 0) {
+          const mapped = list
+            .map((item: any) => this.mapSeries(item))
+            .filter(Boolean) as MangaResult[];
+          if (mapped.length > 0) return mapped;
+        }
+      }
+
+      // Fallback: HTML scraping
+      return this.scrapeListingHtml(html);
     } catch (err: any) {
       this.logger.error(`getLatestManga page ${page} failed: ${err.message}`);
       return [];
     }
   }
 
+  private scrapeListingHtml(html: string): MangaResult[] {
+    const $ = cheerio.load(html);
+    const results: MangaResult[] = [];
+    const seen = new Set<string>();
+
+    $('a[href*="/series/"]').each((_i, el) => {
+      const $a = $(el);
+      const href = ($a.attr('href') || '').split(/[?#]/)[0];
+      const m = href.match(/\/series\/([^\/]+)\/?$/);
+      if (!m) return;
+      const slug = m[1];
+      if (seen.has(slug)) return;
+
+      const $img = $a.find('img').first();
+      const title =
+        $a.find('span.block').first().text().trim() ||
+        $a.attr('title') ||
+        $img.attr('alt') ||
+        $a.text().trim();
+
+      if (!title || title.length < 2) return;
+      seen.add(slug);
+
+      const cover = ($img.attr('src') || $img.attr('data-src') || '').trim();
+
+      results.push({
+        title,
+        coverImage: cover ? this.resolveUrl(cover) : undefined,
+        sourceUrl: this.resolveUrl(href),
+      });
+    });
+
+    return results;
+  }
+
   async searchManga(query: string, page: number): Promise<MangaResult[]> {
     try {
-      const { data } = await this.api.get('/api/series', {
-        params: { name: query, limit: LIMIT, offset: page * LIMIT },
-      });
-      return (data.data ?? []).map((item: any) => this.mapSeries(item));
+      const url = `/series?name=${encodeURIComponent(query)}&page=${page + 1}`;
+      const html = await this.fetchHtml(url);
+
+      const data = this.extractNextData(html);
+      if (data) {
+        const pp = data?.props?.pageProps || {};
+        const list =
+          pp?.series?.data ||
+          pp?.series ||
+          pp?.results ||
+          pp?.data ||
+          [];
+        if (Array.isArray(list) && list.length > 0) {
+          return list
+            .map((item: any) => this.mapSeries(item))
+            .filter(Boolean) as MangaResult[];
+        }
+      }
+
+      return this.scrapeListingHtml(html);
     } catch (err: any) {
       this.logger.error(`searchManga "${query}" page ${page} failed: ${err.message}`);
       return [];
@@ -100,11 +242,40 @@ export class AsuraScansPlugin implements IScraperPlugin {
 
   async getMangaDetail(sourceUrl: string): Promise<MangaResult> {
     try {
-      const path = sourceUrl.replace(API_BASE, '');
-      const { data } = await this.api.get(path);
-      // API may return { data: {...} } or the object directly
-      const item = data.data ?? data;
-      return this.mapSeries(item);
+      const html = await this.fetchHtml(sourceUrl);
+
+      const data = this.extractNextData(html);
+      if (data) {
+        const pp = data?.props?.pageProps || {};
+        const item = pp?.series || pp?.comic || pp?.manga || pp?.data || null;
+        const mapped = this.mapSeries(item);
+        if (mapped) {
+          return { ...mapped, sourceUrl };
+        }
+      }
+
+      // HTML fallback
+      const $ = cheerio.load(html);
+      const title =
+        $('span.text-xl.font-bold').first().text().trim() ||
+        $('h1').first().text().trim() ||
+        $('meta[property="og:title"]').attr('content')?.trim() ||
+        'Unknown';
+      const coverImage =
+        $('div.flex img').first().attr('src') ||
+        $('meta[property="og:image"]').attr('content') ||
+        '';
+      const description = $('span.font-medium.text-sm.text-\\[\\#A2A2A2\\]')
+        .first()
+        .text()
+        .trim();
+
+      return {
+        title,
+        description: description || undefined,
+        coverImage: coverImage ? this.resolveUrl(coverImage) : undefined,
+        sourceUrl,
+      };
     } catch (err: any) {
       this.logger.error(`getMangaDetail ${sourceUrl} failed: ${err.message}`);
       throw new Error(`AsuraScans getMangaDetail failed: ${err.message}`);
@@ -113,24 +284,60 @@ export class AsuraScansPlugin implements IScraperPlugin {
 
   async getChapterList(sourceUrl: string): Promise<ChapterResult[]> {
     try {
-      const path = sourceUrl.replace(API_BASE, '') + '/chapters';
-      const { data } = await this.api.get(path, {
-        params: { limit: 1000, order: 'desc' },
+      const html = await this.fetchHtml(sourceUrl);
+
+      const data = this.extractNextData(html);
+      if (data) {
+        const pp = data?.props?.pageProps || {};
+        const chapterSource =
+          pp?.chapters ||
+          pp?.series?.chapters ||
+          pp?.comic?.chapters ||
+          pp?.data?.chapters ||
+          [];
+        if (Array.isArray(chapterSource) && chapterSource.length > 0) {
+          const out: ChapterResult[] = [];
+          for (const ch of chapterSource) {
+            const num = parseFloat(
+              String(ch.chapter_number ?? ch.number ?? ch.name ?? ''),
+            );
+            if (isNaN(num)) continue;
+            const slug = ch.slug || ch.chapter_slug || String(num);
+            const url = ch.url
+              ? this.resolveUrl(ch.url)
+              : `${sourceUrl.replace(/\/$/, '')}/chapter/${slug}`;
+            out.push({
+              chapterNumber: num,
+              title: ch.name || ch.title || undefined,
+              sourceUrl: url,
+              publishedAt: ch.published_at || ch.date
+                ? new Date(ch.published_at || ch.date)
+                : undefined,
+            });
+          }
+          if (out.length > 0) return out;
+        }
+      }
+
+      // HTML fallback — parse chapter list box
+      const $ = cheerio.load(html);
+      const chapters: ChapterResult[] = [];
+      $('a[href*="/chapter/"]').each((_i, el) => {
+        const $a = $(el);
+        const href = ($a.attr('href') || '').split(/[?#]/)[0];
+        const text = $a.text().trim();
+        const m = text.match(/chapter\s*([\d.]+)/i) || href.match(/chapter\/([\d.]+)/i);
+        if (!m) return;
+        const num = parseFloat(m[1]);
+        if (isNaN(num)) return;
+        chapters.push({
+          chapterNumber: num,
+          title: text || undefined,
+          sourceUrl: this.resolveUrl(href),
+        });
       });
-      const list: any[] = data.data ?? data.chapters ?? data ?? [];
-      return list
-        .map((ch: any) => {
-          const num = parseFloat(ch.number ?? ch.chapter_number ?? '');
-          if (isNaN(num)) return null;
-          return {
-            chapterNumber: num,
-            title: ch.title || undefined,
-            // Store chapter ID in the URL for getPageList
-            sourceUrl: `${API_BASE}/api/chapter/${ch.id}`,
-            publishedAt: ch.published_at ? new Date(ch.published_at) : undefined,
-          } as ChapterResult;
-        })
-        .filter(Boolean) as ChapterResult[];
+
+      return chapters;
     } catch (err: any) {
       this.logger.error(`getChapterList ${sourceUrl} failed: ${err.message}`);
       return [];
@@ -139,72 +346,40 @@ export class AsuraScansPlugin implements IScraperPlugin {
 
   async getPageList(chapterUrl: string): Promise<PageResult[]> {
     try {
-      const path = chapterUrl.replace(API_BASE, '');
-      const { data } = await this.api.get(path);
-      const payload = data.data ?? data;
-      const images: any[] =
-        payload.images ?? payload.pages ?? payload.chapter_images ?? [];
+      const html = await this.fetchHtml(chapterUrl);
 
-      if (images.length > 0) {
-        return images.map((img: any, i: number) => ({
-          pageNumber: img.order ?? img.page ?? i + 1,
-          imageUrl: typeof img === 'string' ? img : (img.url ?? img.src ?? img.image ?? ''),
-        }));
-      }
-
-      // If chapter endpoint returns a redirect/HTML reader URL, scrape it
-      const readerUrl = payload.reader_url ?? payload.url ?? '';
-      if (readerUrl) {
-        return this.scrapeReaderPage(readerUrl);
-      }
-
-      return [];
-    } catch (err: any) {
-      this.logger.error(`getPageList ${chapterUrl} failed: ${err.message}`);
-      return [];
-    }
-  }
-
-  private async scrapeReaderPage(url: string): Promise<PageResult[]> {
-    try {
-      const { data: html } = await axios.get(url, {
-        timeout: 15000,
-        headers: {
-          Referer: `${SITE_BASE}/`,
-          'User-Agent': this.api.defaults.headers['user-agent'] as string,
-        },
-      });
-      const $ = cheerio.load(html);
-
-      // Try __NEXT_DATA__ first
-      const raw = $('script#__NEXT_DATA__').html();
-      if (raw) {
-        const nextData = JSON.parse(raw);
-        const pp = nextData?.props?.pageProps ?? {};
-        const imgs: any[] =
-          pp?.chapter?.images ?? pp?.images ?? pp?.pages ?? [];
-        if (imgs.length > 0) {
-          return imgs.map((img: any, i: number) => ({
-            pageNumber: img.order ?? i + 1,
-            imageUrl: typeof img === 'string' ? img : (img.url ?? ''),
+      const data = this.extractNextData(html);
+      if (data) {
+        const pp = data?.props?.pageProps || {};
+        const images: any[] =
+          pp?.chapter?.images ||
+          pp?.images ||
+          pp?.pages ||
+          pp?.chapter?.pages ||
+          [];
+        if (Array.isArray(images) && images.length > 0) {
+          return images.map((img: any, i: number) => ({
+            pageNumber: img.order ?? img.page ?? i + 1,
+            imageUrl:
+              typeof img === 'string'
+                ? img
+                : img.url || img.src || img.image || '',
           }));
         }
       }
 
-      // Fallback: look for reader images in HTML
+      // HTML fallback
+      const $ = cheerio.load(html);
       const pages: PageResult[] = [];
-      $('div[class*="reader"] img, div[class*="chapter"] img').each((i, el) => {
-        const src =
-          $(el).attr('data-src') ??
-          $(el).attr('src') ??
-          '';
-        if (src && !src.includes('loading') && !src.includes('pixel')) {
+      $('div[class*="reader"] img, div[class*="chapter"] img, img.rounded-none').each((i, el) => {
+        const src = $(el).attr('data-src') || $(el).attr('src') || '';
+        if (src && !src.includes('loading') && !src.includes('pixel') && !src.includes('data:image/gif')) {
           pages.push({ pageNumber: i + 1, imageUrl: src.trim() });
         }
       });
       return pages;
     } catch (err: any) {
-      this.logger.error(`scrapeReaderPage ${url} failed: ${err.message}`);
+      this.logger.error(`getPageList ${chapterUrl} failed: ${err.message}`);
       return [];
     }
   }

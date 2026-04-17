@@ -159,34 +159,29 @@ export class GMangaPlugin implements IScraperPlugin {
 
   /**
    * Try to call GMANGA's internal API for manga listings.
-   * Pattern: POST /api/mangas or GET /api/mangas?page=N
+   * Uses got-scraping since Cloudflare blocks plain axios.
    */
   private async tryApiListing(page: number): Promise<MangaResult[] | null> {
     const apiUrls = [
-      { method: 'get' as const, url: `/api/mangas?page=${page + 1}` },
-      { method: 'post' as const, url: '/api/mangas', data: { page: page + 1 } },
+      `${this.baseUrl}/api/mangas?page=${page + 1}`,
+      `${this.baseUrl}/api/mangas/latest?page=${page + 1}`,
     ];
 
-    for (const req of apiUrls) {
+    for (const url of apiUrls) {
       try {
-        const response =
-          req.method === 'post'
-            ? await this.client.post(req.url, req.data, {
-                headers: {
-                  'Content-Type': 'application/json',
-                  'X-Requested-With': 'XMLHttpRequest',
-                },
-              })
-            : await this.client.get(req.url, {
-                headers: { 'X-Requested-With': 'XMLHttpRequest' },
-              });
-
-        if (response.data && typeof response.data === 'object') {
+        const body = await this.fetchHtml(url);
+        let data: any;
+        try {
+          data = JSON.parse(body);
+        } catch {
+          continue;
+        }
+        if (data && typeof data === 'object') {
           const items =
-            response.data.data ||
-            response.data.mangas ||
-            response.data.results ||
-            response.data;
+            data.data ||
+            data.mangas ||
+            data.results ||
+            (Array.isArray(data) ? data : null);
           if (Array.isArray(items) && items.length > 0) {
             return items
               .map((item: any) => this.mapApiManga(item))
@@ -241,12 +236,32 @@ export class GMangaPlugin implements IScraperPlugin {
     try {
       // Try API first
       const apiResults = await this.tryApiListing(page);
-      if (apiResults && apiResults.length > 0) return apiResults;
+      if (apiResults && apiResults.length > 0) {
+        this.logger.debug(`getLatestManga page ${page}: ${apiResults.length} via API`);
+        return apiResults;
+      }
 
-      // Fallback: HTML scrape
-      const url = `/mangas?page=${page + 1}`;
-      const html = await this.fetchHtml(url);
-      return this.scrapeListingPage(html);
+      // Fallback: HTML scrape — try several listing paths
+      const urls = [
+        `/mangas?page=${page + 1}`,
+        `/mangas/latest?page=${page + 1}`,
+        `/?page=${page + 1}`,
+      ];
+      for (const url of urls) {
+        try {
+          const html = await this.fetchHtml(url);
+          const results = this.scrapeListingPage(html);
+          if (results.length > 0) {
+            this.logger.debug(
+              `getLatestManga page ${page}: ${results.length} via ${url}`,
+            );
+            return results;
+          }
+        } catch (err: any) {
+          this.logger.warn(`${url} failed: ${err.message}`);
+        }
+      }
+      return [];
     } catch (error: any) {
       this.logger.error(`getLatestManga page ${page} failed: ${error.message}`);
       return [];
