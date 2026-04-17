@@ -1,6 +1,6 @@
-import { useRef } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { motion, type Variants } from 'framer-motion';
+import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { ChevronLeft, ChevronRight, TrendingUp, Clock, ArrowRight, Flame } from 'lucide-react';
 import { usePopularManga, useLatestManga } from '@/hooks/useMangaQueries';
 import MangaCard from '@/components/manga/MangaCard';
@@ -16,6 +16,34 @@ const fadeUp: Variants = {
   hidden: { opacity: 0, y: 30 },
   show:   { opacity: 1, y: 0, transition: { duration: 0.55, ease: 'easeOut' as const } },
 };
+
+const CYCLING_WORDS = ['Manga', 'Action', 'Romance', 'Fantasy', 'Mystery', 'Adventure'];
+
+function CyclingWord() {
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setIndex((i) => (i + 1) % CYCLING_WORDS.length), 2200);
+    return () => clearInterval(id);
+  }, []);
+
+  return (
+    <span className="relative inline-block overflow-hidden align-bottom" style={{ minWidth: '6ch' }}>
+      <AnimatePresence mode="wait">
+        <motion.span
+          key={CYCLING_WORDS[index]}
+          initial={{ y: '100%', opacity: 0 }}
+          animate={{ y: '0%',   opacity: 1 }}
+          exit={{   y: '-100%', opacity: 0 }}
+          transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+          className="gradient-text inline-block"
+        >
+          {CYCLING_WORDS[index]}
+        </motion.span>
+      </AnimatePresence>
+    </span>
+  );
+}
 
 function SectionHeader({
   icon: Icon,
@@ -96,7 +124,7 @@ function HomePage() {
               className="text-5xl sm:text-6xl lg:text-7xl font-extrabold leading-[1.05] tracking-tight text-textPrimary"
             >
               Your World of{' '}
-              <span className="gradient-text">Manga</span>
+              <CyclingWord />
               <br />
               Starts Here.
             </motion.h1>
