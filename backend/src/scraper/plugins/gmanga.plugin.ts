@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios, { AxiosInstance } from 'axios';
 import * as cheerio from 'cheerio';
+// gmanga.org is Cloudflare-protected — use got-scraping for browser TLS fingerprinting
 import {
   IScraperPlugin,
   MangaResult,
@@ -27,6 +28,7 @@ export class GMangaPlugin implements IScraperPlugin {
 
   private readonly logger = new Logger(GMangaPlugin.name);
   private readonly client: AxiosInstance;
+  private gotScrapingPromise: Promise<any> | undefined;
 
   constructor() {
     this.baseUrl = process.env.GMANGA_BASE_URL || 'https://gmanga.org';
@@ -47,6 +49,37 @@ export class GMangaPlugin implements IScraperPlugin {
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
+
+  private async getGotScraping(): Promise<any> {
+    if (!this.gotScrapingPromise) {
+      this.gotScrapingPromise = (
+        new Function('return import("got-scraping")') as () => Promise<any>
+      )().then((mod) => mod.gotScraping);
+    }
+    return this.gotScrapingPromise;
+  }
+
+  private async fetchHtml(path: string): Promise<string> {
+    const url = path.startsWith('http') ? path : `${this.baseUrl}${path}`;
+    try {
+      const gotScraping = await this.getGotScraping();
+      const res = await gotScraping({
+        url,
+        timeout: { request: 60000 },
+        headerGeneratorOptions: {
+          browsers: [{ name: 'chrome', minVersion: 120 }],
+          devices: ['desktop'],
+          operatingSystems: ['windows'],
+          locales: ['ar-SA', 'en-US'],
+        },
+      });
+      return res.body as string;
+    } catch (err: any) {
+      this.logger.warn(`got-scraping failed for ${url}, falling back to axios: ${err.message}`);
+      const res = await this.client.get(url);
+      return res.data as string;
+    }
+  }
 
   private resolveUrl(href: string): string {
     if (!href) return '';
@@ -212,8 +245,8 @@ export class GMangaPlugin implements IScraperPlugin {
 
       // Fallback: HTML scrape
       const url = `/mangas?page=${page + 1}`;
-      const response = await this.client.get(url);
-      return this.scrapeListingPage(response.data);
+      const html = await this.fetchHtml(url);
+      return this.scrapeListingPage(html);
     } catch (error: any) {
       this.logger.error(`getLatestManga page ${page} failed: ${error.message}`);
       return [];
@@ -256,8 +289,8 @@ export class GMangaPlugin implements IScraperPlugin {
 
       for (const url of searchUrls) {
         try {
-          const response = await this.client.get(url);
-          const results = this.scrapeListingPage(response.data);
+          const html = await this.fetchHtml(url);
+          const results = this.scrapeListingPage(html);
           if (results.length > 0) return results;
         } catch {
           continue;
@@ -275,8 +308,8 @@ export class GMangaPlugin implements IScraperPlugin {
 
   async getMangaDetail(sourceUrl: string): Promise<MangaResult> {
     try {
-      const response = await this.client.get(sourceUrl);
-      const $ = cheerio.load(response.data);
+      const html = await this.fetchHtml(sourceUrl);
+      const $ = cheerio.load(html);
 
       const title =
         $('h1').first().text().trim() ||
@@ -351,8 +384,8 @@ export class GMangaPlugin implements IScraperPlugin {
 
   async getChapterList(sourceUrl: string): Promise<ChapterResult[]> {
     try {
-      const response = await this.client.get(sourceUrl);
-      const $ = cheerio.load(response.data);
+      const html = await this.fetchHtml(sourceUrl);
+      const $ = cheerio.load(html);
       const chapters: ChapterResult[] = [];
 
       // Try embedded JSON data first
@@ -434,8 +467,8 @@ export class GMangaPlugin implements IScraperPlugin {
 
   async getPageList(chapterUrl: string): Promise<PageResult[]> {
     try {
-      const response = await this.client.get(chapterUrl);
-      const $ = cheerio.load(response.data);
+      const html = await this.fetchHtml(chapterUrl);
+      const $ = cheerio.load(html);
       const pages: PageResult[] = [];
 
       // Try embedded JSON page data first

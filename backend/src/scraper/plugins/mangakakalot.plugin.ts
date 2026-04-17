@@ -17,7 +17,7 @@ export class MangaKakalotPlugin implements IScraperPlugin {
   private readonly client: AxiosInstance;
 
   constructor() {
-    this.baseUrl = process.env.MANGAKAKALOT_BASE_URL || 'https://mangakakalot.gg';
+    this.baseUrl = process.env.MANGAKAKALOT_BASE_URL || 'https://www.mangakakalot.gg';
     this.client = axios.create({
       baseURL: this.baseUrl,
       timeout: 15000,
