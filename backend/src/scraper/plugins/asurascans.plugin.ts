@@ -8,336 +8,204 @@ import {
   PageResult,
 } from '../interfaces/scraper-plugin.interface';
 
+const API_BASE = 'https://api.asurascans.com';
+const SITE_BASE = 'https://asurascans.com';
+const LIMIT = 20;
+
 @Injectable()
 export class AsuraScansPlugin implements IScraperPlugin {
   readonly sourceName = 'asurascans';
-  readonly baseUrl: string;
+  readonly baseUrl = SITE_BASE;
 
   private readonly logger = new Logger(AsuraScansPlugin.name);
-  private readonly client: AxiosInstance;
+  private readonly api: AxiosInstance;
 
   constructor() {
-    this.baseUrl = process.env.ASURASCANS_BASE_URL || 'https://asuracomic.net';
-    this.client = axios.create({
-      baseURL: this.baseUrl,
+    this.api = axios.create({
+      baseURL: API_BASE,
       timeout: 15000,
       headers: {
-        Referer: `${this.baseUrl}/`,
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        Accept:
-          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
+        accept: '*/*',
+        'accept-language': 'en-US,en;q=0.9',
+        origin: SITE_BASE,
+        referer: `${SITE_BASE}/`,
+        'user-agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0',
+        'sec-fetch-dest': 'empty',
+        'sec-fetch-mode': 'cors',
+        'sec-fetch-site': 'same-site',
       },
     });
   }
 
-  private extractNextData(html: string): any {
-    const $ = cheerio.load(html);
-    const scriptEl = $('script#__NEXT_DATA__');
-    if (!scriptEl.length) {
-      throw new Error('__NEXT_DATA__ script not found on page');
-    }
-    return JSON.parse(scriptEl.html() || '{}');
+  private stripHtml(html: string): string {
+    if (!html) return '';
+    return cheerio.load(`<div>${html}</div>`)('div').text().trim();
   }
 
-  private resolveUrl(href: string): string {
-    if (!href) return '';
-    if (href.startsWith('http')) return href;
-    if (href.startsWith('//')) return `https:${href}`;
-    if (href.startsWith('/')) return `${this.baseUrl}${href}`;
-    return `${this.baseUrl}/${href}`;
-  }
-
-  private decodeImageUrl(url: string): string {
-    if (!url) return '';
-    // Handle Base64-encoded image URLs
-    if (url.startsWith('data:')) return url;
-    try {
-      const decoded = Buffer.from(url, 'base64').toString('utf-8');
-      if (decoded.startsWith('http')) return decoded;
-    } catch {
-      // Not Base64 encoded, return as-is
-    }
-    return url;
-  }
-
-  private mapStatus(
-    status: string | undefined,
-  ): MangaResult['status'] | undefined {
-    if (!status) return undefined;
-    const lower = status.toLowerCase().trim();
-    const statusMap: Record<string, MangaResult['status']> = {
+  private mapStatus(s?: string): MangaResult['status'] | undefined {
+    if (!s) return undefined;
+    const map: Record<string, MangaResult['status']> = {
       ongoing: 'ongoing',
       completed: 'completed',
       hiatus: 'hiatus',
-      cancelled: 'cancelled',
       dropped: 'cancelled',
-      'on hold': 'hiatus',
+      cancelled: 'cancelled',
     };
-    return statusMap[lower] || undefined;
+    return map[s.toLowerCase()] ?? undefined;
+  }
+
+  private seriesApiUrl(id: number | string) {
+    return `${API_BASE}/api/series/${id}`;
+  }
+
+  private mapSeries(item: any): MangaResult {
+    return {
+      title: item.title || 'Unknown',
+      alternativeTitles: item.alt_titles?.length ? item.alt_titles : undefined,
+      author: item.author || undefined,
+      artist: item.artist || undefined,
+      description: item.description ? this.stripHtml(item.description) : undefined,
+      coverImage: item.cover || undefined,
+      genres: item.genres?.map((g: any) => g.name as string).filter(Boolean) || undefined,
+      status: this.mapStatus(item.status),
+      // Store the REST API URL so getMangaDetail / getChapterList can re-use it
+      sourceUrl: this.seriesApiUrl(item.id),
+    };
   }
 
   async getLatestManga(page: number): Promise<MangaResult[]> {
     try {
-      const url = `/series?page=${page + 1}&order=update`;
-      const response = await this.client.get(url);
-      const nextData = this.extractNextData(response.data);
-      const pageProps = nextData?.props?.pageProps || {};
-      const series = pageProps?.series || pageProps?.data || [];
-
-      if (Array.isArray(series)) {
-        return series.map((item: any) => this.mapSeriesItem(item));
-      }
-
-      // Fallback: try HTML scraping if __NEXT_DATA__ doesn't have the series list
-      return this.scrapeListingPage(response.data);
-    } catch (error: any) {
-      this.logger.error(`getLatestManga page ${page} failed: ${error.message}`);
+      const { data } = await this.api.get('/api/series', {
+        params: { sort: 'latest', order: 'desc', limit: LIMIT, offset: page * LIMIT },
+      });
+      return (data.data ?? []).map((item: any) => this.mapSeries(item));
+    } catch (err: any) {
+      this.logger.error(`getLatestManga page ${page} failed: ${err.message}`);
       return [];
     }
   }
 
   async searchManga(query: string, page: number): Promise<MangaResult[]> {
     try {
-      const url = `/series?page=${page + 1}&name=${encodeURIComponent(query)}`;
-      const response = await this.client.get(url);
-      const nextData = this.extractNextData(response.data);
-      const pageProps = nextData?.props?.pageProps || {};
-      const series = pageProps?.series || pageProps?.data || [];
-
-      if (Array.isArray(series)) {
-        return series.map((item: any) => this.mapSeriesItem(item));
-      }
-
-      return this.scrapeListingPage(response.data);
-    } catch (error: any) {
-      this.logger.error(
-        `searchManga "${query}" page ${page} failed: ${error.message}`,
-      );
+      const { data } = await this.api.get('/api/series', {
+        params: { name: query, limit: LIMIT, offset: page * LIMIT },
+      });
+      return (data.data ?? []).map((item: any) => this.mapSeries(item));
+    } catch (err: any) {
+      this.logger.error(`searchManga "${query}" page ${page} failed: ${err.message}`);
       return [];
     }
   }
 
   async getMangaDetail(sourceUrl: string): Promise<MangaResult> {
     try {
-      const response = await this.client.get(sourceUrl);
-      const nextData = this.extractNextData(response.data);
-      const pageProps = nextData?.props?.pageProps || {};
-      const comic =
-        pageProps?.comic || pageProps?.series || pageProps?.data || {};
-
-      const title =
-        comic.title || comic.name || comic.comic_title || 'Unknown';
-      const description =
-        comic.description || comic.summary || comic.comic_description || '';
-      const coverImage = this.decodeImageUrl(
-        comic.thumbnail || comic.cover || comic.image || '',
-      );
-
-      const genres: string[] = (
-        comic.genres ||
-        comic.categories ||
-        comic.tags ||
-        []
-      ).map((g: any) => (typeof g === 'string' ? g : g.name || g.title || ''));
-
-      const altTitles: string[] = [];
-      if (comic.alternative_titles) {
-        if (typeof comic.alternative_titles === 'string') {
-          altTitles.push(
-            ...comic.alternative_titles
-              .split(/[;,]/)
-              .map((t: string) => t.trim())
-              .filter(Boolean),
-          );
-        } else if (Array.isArray(comic.alternative_titles)) {
-          altTitles.push(...comic.alternative_titles);
-        }
-      }
-
-      return {
-        title,
-        alternativeTitles: altTitles.length > 0 ? altTitles : undefined,
-        author: comic.author || comic.comic_author || undefined,
-        artist: comic.artist || comic.comic_artist || undefined,
-        genres: genres.filter(Boolean).length > 0 ? genres.filter(Boolean) : undefined,
-        status: this.mapStatus(
-          comic.status || comic.comic_status,
-        ),
-        description: this.stripHtml(description) || undefined,
-        coverImage: coverImage ? this.resolveUrl(coverImage) : undefined,
-        sourceUrl,
-      };
-    } catch (error: any) {
-      this.logger.error(
-        `getMangaDetail for ${sourceUrl} failed: ${error.message}`,
-      );
-      throw new Error(`Failed to get manga detail: ${error.message}`);
+      const path = sourceUrl.replace(API_BASE, '');
+      const { data } = await this.api.get(path);
+      // API may return { data: {...} } or the object directly
+      const item = data.data ?? data;
+      return this.mapSeries(item);
+    } catch (err: any) {
+      this.logger.error(`getMangaDetail ${sourceUrl} failed: ${err.message}`);
+      throw new Error(`AsuraScans getMangaDetail failed: ${err.message}`);
     }
   }
 
   async getChapterList(sourceUrl: string): Promise<ChapterResult[]> {
     try {
-      const response = await this.client.get(sourceUrl);
-      const nextData = this.extractNextData(response.data);
-      const pageProps = nextData?.props?.pageProps || {};
-      const comic =
-        pageProps?.comic || pageProps?.series || pageProps?.data || {};
-      const chapterData =
-        comic.chapters ||
-        comic.chapter_list ||
-        pageProps?.chapters ||
-        [];
-
-      if (!Array.isArray(chapterData)) return [];
-
-      return chapterData
+      const path = sourceUrl.replace(API_BASE, '') + '/chapters';
+      const { data } = await this.api.get(path, {
+        params: { limit: 1000, order: 'desc' },
+      });
+      const list: any[] = data.data ?? data.chapters ?? data ?? [];
+      return list
         .map((ch: any) => {
-          const chNum = parseFloat(
-            ch.chapter_number ||
-              ch.number ||
-              ch.chapter ||
-              this.extractChapterNumber(ch.name || ch.title || ''),
-          );
-          if (isNaN(chNum)) return null;
-
-          const slug = ch.slug || ch.chapter_slug || '';
-          const chapterUrl = slug
-            ? this.resolveUrl(
-                sourceUrl.replace(this.baseUrl, '') + `/${slug}`,
-              )
-            : ch.url
-              ? this.resolveUrl(ch.url)
-              : '';
-
+          const num = parseFloat(ch.number ?? ch.chapter_number ?? '');
+          if (isNaN(num)) return null;
           return {
-            chapterNumber: chNum,
-            title: ch.name || ch.title || undefined,
-            sourceUrl: chapterUrl,
-            publishedAt: ch.created_at || ch.published_at
-              ? new Date(ch.created_at || ch.published_at)
-              : undefined,
+            chapterNumber: num,
+            title: ch.title || undefined,
+            // Store chapter ID in the URL for getPageList
+            sourceUrl: `${API_BASE}/api/chapter/${ch.id}`,
+            publishedAt: ch.published_at ? new Date(ch.published_at) : undefined,
           } as ChapterResult;
         })
         .filter(Boolean) as ChapterResult[];
-    } catch (error: any) {
-      this.logger.error(
-        `getChapterList for ${sourceUrl} failed: ${error.message}`,
-      );
+    } catch (err: any) {
+      this.logger.error(`getChapterList ${sourceUrl} failed: ${err.message}`);
       return [];
     }
   }
 
   async getPageList(chapterUrl: string): Promise<PageResult[]> {
     try {
-      const response = await this.client.get(chapterUrl);
-      const nextData = this.extractNextData(response.data);
-      const pageProps = nextData?.props?.pageProps || {};
+      const path = chapterUrl.replace(API_BASE, '');
+      const { data } = await this.api.get(path);
+      const payload = data.data ?? data;
+      const images: any[] =
+        payload.images ?? payload.pages ?? payload.chapter_images ?? [];
 
-      // Try to get pages from __NEXT_DATA__
-      const chapter =
-        pageProps?.chapter || pageProps?.data || pageProps || {};
-      const images =
-        chapter.images ||
-        chapter.pages ||
-        chapter.chapter_images ||
-        chapter.content?.images ||
-        [];
-
-      if (Array.isArray(images) && images.length > 0) {
-        return images.map((img: any, index: number) => {
-          const url = typeof img === 'string' ? img : img.url || img.src || img.image || '';
-          return {
-            pageNumber: img.order || img.page || index + 1,
-            imageUrl: this.resolveUrl(this.decodeImageUrl(url)),
-          };
-        });
+      if (images.length > 0) {
+        return images.map((img: any, i: number) => ({
+          pageNumber: img.order ?? img.page ?? i + 1,
+          imageUrl: typeof img === 'string' ? img : (img.url ?? img.src ?? img.image ?? ''),
+        }));
       }
 
-      // Fallback: scrape images from HTML
-      const $ = cheerio.load(response.data);
-      const pages: PageResult[] = [];
+      // If chapter endpoint returns a redirect/HTML reader URL, scrape it
+      const readerUrl = payload.reader_url ?? payload.url ?? '';
+      if (readerUrl) {
+        return this.scrapeReaderPage(readerUrl);
+      }
 
-      $('div.reading-content img, div.chapter-content img, img.wp-manga-chapter-img').each(
-        (i, el) => {
-          const $img = $(el);
-          const imageUrl =
-            $img.attr('data-src') || $img.attr('src') || '';
-          if (imageUrl && !imageUrl.includes('loading') && !imageUrl.includes('pixel')) {
-            pages.push({
-              pageNumber: i + 1,
-              imageUrl: this.resolveUrl(this.decodeImageUrl(imageUrl.trim())),
-            });
-          }
-        },
-      );
-
-      return pages;
-    } catch (error: any) {
-      this.logger.error(
-        `getPageList for ${chapterUrl} failed: ${error.message}`,
-      );
+      return [];
+    } catch (err: any) {
+      this.logger.error(`getPageList ${chapterUrl} failed: ${err.message}`);
       return [];
     }
   }
 
-  private mapSeriesItem(item: any): MangaResult {
-    const title = item.title || item.name || item.comic_title || 'Unknown';
-    const slug = item.slug || item.comic_slug || '';
-    const coverImage = this.decodeImageUrl(
-      item.thumbnail || item.cover || item.image || '',
-    );
+  private async scrapeReaderPage(url: string): Promise<PageResult[]> {
+    try {
+      const { data: html } = await axios.get(url, {
+        timeout: 15000,
+        headers: {
+          Referer: `${SITE_BASE}/`,
+          'User-Agent': this.api.defaults.headers['user-agent'] as string,
+        },
+      });
+      const $ = cheerio.load(html);
 
-    return {
-      title,
-      coverImage: coverImage ? this.resolveUrl(coverImage) : undefined,
-      sourceUrl: slug
-        ? `${this.baseUrl}/series/${slug}`
-        : this.resolveUrl(item.url || ''),
-      genres: item.genres
-        ? item.genres.map((g: any) =>
-            typeof g === 'string' ? g : g.name || '',
-          ).filter(Boolean)
-        : undefined,
-      status: this.mapStatus(item.status),
-    };
-  }
-
-  private scrapeListingPage(html: string): MangaResult[] {
-    const $ = cheerio.load(html);
-    const results: MangaResult[] = [];
-
-    $('div.series-card, div.comic-item, a.series-link').each((_i, el) => {
-      const $el = $(el);
-      const linkEl = $el.is('a') ? $el : $el.find('a').first();
-      const href = linkEl.attr('href') || '';
-      const title = $el.find('h3, h2, .series-title').text().trim() || linkEl.attr('title') || '';
-      const coverImage =
-        $el.find('img').attr('data-src') || $el.find('img').attr('src') || '';
-
-      if (title && href) {
-        results.push({
-          title,
-          coverImage: this.resolveUrl(this.decodeImageUrl(coverImage)),
-          sourceUrl: this.resolveUrl(href),
-        });
+      // Try __NEXT_DATA__ first
+      const raw = $('script#__NEXT_DATA__').html();
+      if (raw) {
+        const nextData = JSON.parse(raw);
+        const pp = nextData?.props?.pageProps ?? {};
+        const imgs: any[] =
+          pp?.chapter?.images ?? pp?.images ?? pp?.pages ?? [];
+        if (imgs.length > 0) {
+          return imgs.map((img: any, i: number) => ({
+            pageNumber: img.order ?? i + 1,
+            imageUrl: typeof img === 'string' ? img : (img.url ?? ''),
+          }));
+        }
       }
-    });
 
-    return results;
-  }
-
-  private extractChapterNumber(text: string): string {
-    const match = text.match(/(?:chapter|ch\.?)\s*([\d.]+)/i);
-    return match ? match[1] : '';
-  }
-
-  private stripHtml(html: string): string {
-    if (!html) return '';
-    return cheerio
-      .load(`<div>${html}</div>`)('div')
-      .text()
-      .trim();
+      // Fallback: look for reader images in HTML
+      const pages: PageResult[] = [];
+      $('div[class*="reader"] img, div[class*="chapter"] img').each((i, el) => {
+        const src =
+          $(el).attr('data-src') ??
+          $(el).attr('src') ??
+          '';
+        if (src && !src.includes('loading') && !src.includes('pixel')) {
+          pages.push({ pageNumber: i + 1, imageUrl: src.trim() });
+        }
+      });
+      return pages;
+    } catch (err: any) {
+      this.logger.error(`scrapeReaderPage ${url} failed: ${err.message}`);
+      return [];
+    }
   }
 }
