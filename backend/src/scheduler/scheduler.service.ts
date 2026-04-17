@@ -42,7 +42,7 @@ export class SchedulerService {
   /**
    * Every 5 minutes - Quick check for new chapters on existing manga.
    */
-  @Cron('*/5 * * * *', { name: 'frequentChapterCheck', timeZone: 'UTC' })
+  @Cron('0 */4 * * *', { name: 'frequentChapterCheck', timeZone: 'UTC' })
   async handleFrequentChapterCheck(): Promise<void> {
     const jobName = 'frequentChapterCheck';
     this.logger.log('Starting 5-minute chapter check...');
@@ -142,7 +142,7 @@ export class SchedulerService {
   /**
    * Hourly full scrape - discover new manga titles (top of every hour, UTC).
    */
-  @Cron('0 * * * *', { name: 'hourlyFullScrape', timeZone: 'UTC' })
+  @Cron('0 */6 * * *', { name: 'hourlyFullScrape', timeZone: 'UTC' })
   async handleWeeklyFullScrape(): Promise<void> {
     const jobName = 'hourlyFullScrape';
     this.logger.log('Starting hourly full scrape...');

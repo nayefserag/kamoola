@@ -122,6 +122,14 @@ export class MangaService {
     };
   }
 
+  async countBySource(): Promise<{ source: string; count: number }[]> {
+    const result = await this.mangaModel.aggregate([
+      { $group: { _id: '$source', count: { $sum: 1 } } },
+      { $sort: { count: -1 } },
+    ]);
+    return result.map((r) => ({ source: r._id ?? 'unknown', count: r.count }));
+  }
+
   async upsert(data: Partial<Manga> & { sourceUrl: string }) {
     return this.mangaModel
       .findOneAndUpdate({ sourceUrl: data.sourceUrl }, data, {

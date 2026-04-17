@@ -1,0 +1,354 @@
+{
+  "info": {
+    "name": "Kamoola API",
+    "_postman_id": "kamoola-api-collection",
+    "description": "Kamoola manga platform API — localhost:3001",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:3001",
+      "type": "string"
+    },
+    {
+      "key": "manga_id",
+      "value": "REPLACE_WITH_MANGA_ID",
+      "type": "string"
+    },
+    {
+      "key": "chapter_id",
+      "value": "REPLACE_WITH_CHAPTER_ID",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Manga",
+      "item": [
+        {
+          "name": "List Manga (paginated + filters)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/manga?page=1&limit=20&sortBy=updatedAt",
+              "host": ["{{base_url}}"],
+              "path": ["manga"],
+              "query": [
+                { "key": "page",    "value": "1" },
+                { "key": "limit",   "value": "20" },
+                { "key": "sortBy",  "value": "updatedAt", "description": "updatedAt | views | rating | title" },
+                { "key": "status",  "value": "ongoing",   "description": "ongoing | completed | hiatus | cancelled", "disabled": true },
+                { "key": "genres",  "value": "Action",    "description": "comma-separated or repeated param", "disabled": true },
+                { "key": "language","value": "en",        "description": "en | ar", "disabled": true },
+                { "key": "search",  "value": "",          "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Popular Manga",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/manga/popular?limit=15",
+              "host": ["{{base_url}}"],
+              "path": ["manga", "popular"],
+              "query": [{ "key": "limit", "value": "15" }]
+            }
+          }
+        },
+        {
+          "name": "Latest Manga",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/manga/latest?limit=18",
+              "host": ["{{base_url}}"],
+              "path": ["manga", "latest"],
+              "query": [{ "key": "limit", "value": "18" }]
+            }
+          }
+        },
+        {
+          "name": "Search Manga",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/manga/search?q=solo&page=1&limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["manga", "search"],
+              "query": [
+                { "key": "q",     "value": "solo" },
+                { "key": "page",  "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Manga by ID",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/manga/{{manga_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["manga", "{{manga_id}}"]
+            }
+          }
+        },
+        {
+          "name": "Filter — Arabic only",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/manga?page=1&limit=20&language=ar",
+              "host": ["{{base_url}}"],
+              "path": ["manga"],
+              "query": [
+                { "key": "page",     "value": "1" },
+                { "key": "limit",    "value": "20" },
+                { "key": "language", "value": "ar" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Filter — English completed",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/manga?page=1&limit=20&language=en&status=completed",
+              "host": ["{{base_url}}"],
+              "path": ["manga"],
+              "query": [
+                { "key": "page",     "value": "1" },
+                { "key": "limit",    "value": "20" },
+                { "key": "language", "value": "en" },
+                { "key": "status",   "value": "completed" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Chapters",
+      "item": [
+        {
+          "name": "Get Chapters for Manga",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/manga/{{manga_id}}/chapters?page=1&limit=50",
+              "host": ["{{base_url}}"],
+              "path": ["manga", "{{manga_id}}", "chapters"],
+              "query": [
+                { "key": "page",  "value": "1" },
+                { "key": "limit", "value": "50" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Get Chapter by ID (with pages)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/chapters/{{chapter_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["chapters", "{{chapter_id}}"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Scraper",
+      "item": [
+        {
+          "name": "Trigger Full Sync (all sources)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{base_url}}/scraper/trigger",
+              "host": ["{{base_url}}"],
+              "path": ["scraper", "trigger"]
+            }
+          }
+        },
+        {
+          "name": "Trigger Sync — specific source",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"source\": \"asurascans\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{base_url}}/scraper/trigger",
+              "host": ["{{base_url}}"],
+              "path": ["scraper", "trigger"]
+            },
+            "description": "source options: mangadex | mangakakalot | asurascans | madara | olympustaff | mangalek | azora | mangaswat | gmanga"
+          }
+        },
+        {
+          "name": "Trigger Chapter Check",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{base_url}}/scraper/check-updates",
+              "host": ["{{base_url}}"],
+              "path": ["scraper", "check-updates"]
+            }
+          }
+        },
+        {
+          "name": "Stop Sync",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{base_url}}/scraper/stop",
+              "host": ["{{base_url}}"],
+              "path": ["scraper", "stop"]
+            }
+          }
+        },
+        {
+          "name": "Get Scraper Status",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/scraper/status",
+              "host": ["{{base_url}}"],
+              "path": ["scraper", "status"]
+            }
+          }
+        },
+        {
+          "name": "Get Stats (manga count per source)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/scraper/stats",
+              "host": ["{{base_url}}"],
+              "path": ["scraper", "stats"]
+            }
+          }
+        },
+        {
+          "name": "Get Sources list",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/scraper/sources",
+              "host": ["{{base_url}}"],
+              "path": ["scraper", "sources"]
+            }
+          }
+        },
+        {
+          "name": "Get Logs",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/scraper/logs",
+              "host": ["{{base_url}}"],
+              "path": ["scraper", "logs"],
+              "query": [
+                { "key": "since", "value": "", "description": "ISO timestamp — only return logs after this time", "disabled": true }
+              ]
+            }
+          }
+        },
+        {
+          "name": "Clear Logs",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{base_url}}/scraper/logs/clear",
+              "host": ["{{base_url}}"],
+              "path": ["scraper", "logs", "clear"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Scheduler",
+      "item": [
+        {
+          "name": "Get Job Statuses",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/scheduler/status",
+              "host": ["{{base_url}}"],
+              "path": ["scheduler", "status"]
+            }
+          }
+        },
+        {
+          "name": "Trigger Daily Job",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{base_url}}/scheduler/trigger/daily",
+              "host": ["{{base_url}}"],
+              "path": ["scheduler", "trigger", "daily"]
+            }
+          }
+        },
+        {
+          "name": "Trigger Weekly Job",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{base_url}}/scheduler/trigger/weekly",
+              "host": ["{{base_url}}"],
+              "path": ["scheduler", "trigger", "weekly"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Proxy",
+      "item": [
+        {
+          "name": "Proxy Image",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/proxy?url=https://cdn.asurascans.com/asura-images/covers/absolute-regression.5742b2.webp&source=asurascans",
+              "host": ["{{base_url}}"],
+              "path": ["proxy"],
+              "query": [
+                { "key": "url",    "value": "https://cdn.asurascans.com/asura-images/covers/absolute-regression.5742b2.webp" },
+                { "key": "source", "value": "asurascans" }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

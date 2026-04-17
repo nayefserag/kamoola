@@ -32,6 +32,7 @@ interface SourceInfo {
   name: string;
   baseUrl: string;
   language: 'en' | 'ar';
+  count: number;
 }
 
 /* ── Helpers ────────────────────────────────────── */
@@ -203,7 +204,11 @@ function SourceCard({
         </div>
 
         <p className="text-sm font-semibold text-textPrimary capitalize mb-0.5">{source.name}</p>
-        <p className="text-[11px] text-textSecondary/60 truncate mb-3">{source.baseUrl}</p>
+        <p className="text-[11px] text-textSecondary/60 truncate">{source.baseUrl}</p>
+        <p className="text-lg font-bold text-textPrimary mb-2">
+          {source.count.toLocaleString()}
+          <span className="text-xs font-normal text-textSecondary ml-1">manga</span>
+        </p>
 
         <motion.button
           whileTap={{ scale: 0.95 }}
@@ -272,11 +277,14 @@ export default function AdminPage() {
     return () => clearInterval(pollRef.current);
   }, [fetchStatus, fetchLogs]);
 
-  useEffect(() => {
-    apiClient.get('/scraper/sources')
-      .then(({ data }) => setSources(data.sources ?? []))
-      .catch(() => {});
+  const fetchStats = useCallback(async () => {
+    try {
+      const { data } = await apiClient.get('/scraper/stats');
+      setSources(data.sources ?? []);
+    } catch {}
   }, []);
+
+  useEffect(() => { fetchStats(); }, [fetchStats]);
 
   const trigger = async (action: string, body?: object) => {
     const key = body ? `source-${(body as any).source}` : action;
@@ -353,7 +361,7 @@ export default function AdminPage() {
         <StatCard label="Status"    value={isRunning ? 'Syncing' : 'Idle'}          icon={Zap}      running={isRunning} />
         <StatCard label="Last Run"  value={fmt(status?.lastRunAt ?? null)}           icon={Clock}    />
         <StatCard label="Errors"    value={String(status?.errors?.length ?? 0)}     icon={XCircle}  />
-        <StatCard label="Sources"   value={String(sources.length)}                  icon={Layers}   />
+        <StatCard label="Manga in DB" value={sources.reduce((s, c) => s + c.count, 0).toLocaleString()} icon={Layers} />
       </div>
 
       {/* ── Global controls ── */}

@@ -11,6 +11,7 @@ import { ScraperService } from './scraper.service';
 import { LogService } from './log.service';
 import { SchedulerService } from '../scheduler/scheduler.service';
 import { ScraperRegistryService } from './scraper-registry.service';
+import { MangaService } from '../manga/manga.service';
 
 class TriggerScrapeDto {
   source?: string;
@@ -23,6 +24,7 @@ export class ScraperController {
     private readonly logService: LogService,
     private readonly schedulerService: SchedulerService,
     private readonly registryService: ScraperRegistryService,
+    private readonly mangaService: MangaService,
   ) {}
 
   @Post('trigger')
@@ -68,6 +70,24 @@ export class ScraperController {
     this.logService.clear();
     this.logService.info('Logs cleared', 'System');
     return { message: 'Logs cleared' };
+  }
+
+  @Get('stats')
+  async getStats() {
+    const ARABIC = new Set(['olympustaff', 'mangalek', 'azora', 'mangaswat', 'gmanga']);
+    const counts = await this.mangaService.countBySource();
+    const plugins = this.registryService.getAllPlugins();
+    const countMap = Object.fromEntries(counts.map((c) => [c.source, c.count]));
+    const total = counts.reduce((s, c) => s + c.count, 0);
+
+    const sources = plugins.map((p) => ({
+      name: p.sourceName,
+      baseUrl: p.baseUrl,
+      language: ARABIC.has(p.sourceName) ? 'ar' : 'en',
+      count: countMap[p.sourceName] ?? 0,
+    }));
+
+    return { total, sources };
   }
 
   @Get('sources')
