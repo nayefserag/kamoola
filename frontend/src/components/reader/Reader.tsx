@@ -82,7 +82,6 @@ function ReaderImage({
           key={attempt}
           src={finalSrc}
           alt={alt}
-          loading="lazy"
           onLoad={() => setLoaded(true)}
           onError={handleError}
           className={`w-full transition-opacity duration-300 ${

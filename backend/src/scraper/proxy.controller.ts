@@ -14,6 +14,8 @@ export class ProxyController {
   private readonly logger = new Logger(ProxyController.name);
 
   private readonly refererMap: Record<string, string> = {
+    'mangadex.org': 'https://mangadex.org/',
+    mangadex: 'https://mangadex.org/',
     mangakakalot: 'https://mangakakalot.gg/',
     asurascans: 'https://asuracomic.net/',
     madara: process.env.MADARA_BASE_URL
