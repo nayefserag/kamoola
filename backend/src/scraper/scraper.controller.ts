@@ -10,6 +10,7 @@ import {
 import { ScraperService } from './scraper.service';
 import { LogService } from './log.service';
 import { SchedulerService } from '../scheduler/scheduler.service';
+import { ScraperRegistryService } from './scraper-registry.service';
 
 class TriggerScrapeDto {
   source?: string;
@@ -21,6 +22,7 @@ export class ScraperController {
     private readonly scraperService: ScraperService,
     private readonly logService: LogService,
     private readonly schedulerService: SchedulerService,
+    private readonly registryService: ScraperRegistryService,
   ) {}
 
   @Post('trigger')
@@ -66,5 +68,16 @@ export class ScraperController {
     this.logService.clear();
     this.logService.info('Logs cleared', 'System');
     return { message: 'Logs cleared' };
+  }
+
+  @Get('sources')
+  getSources() {
+    const ARABIC = new Set(['olympustaff', 'mangalek', 'azora', 'mangaswat', 'gmanga']);
+    const plugins = this.registryService.getAllPlugins().map((p) => ({
+      name: p.sourceName,
+      baseUrl: p.baseUrl,
+      language: ARABIC.has(p.sourceName) ? 'ar' : 'en',
+    }));
+    return { sources: plugins };
   }
 }

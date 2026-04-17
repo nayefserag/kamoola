@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Play, Square, RefreshCw, Trash2, ChevronDown,
   CheckCircle2, AlertTriangle, XCircle, Info,
-  Activity, Clock, AlertCircle, Layers, Zap, Timer,
+  Activity, Clock, AlertCircle, Layers, Zap, Timer, Globe, X,
 } from 'lucide-react';
 import apiClient from '@/api/client';
 
@@ -28,6 +28,11 @@ interface JobStatus {
   nextRunAt: string | null;
   lastError: string | null;
 }
+interface SourceInfo {
+  name: string;
+  baseUrl: string;
+  language: 'en' | 'ar';
+}
 
 /* ── Helpers ────────────────────────────────────── */
 const LEVEL_CFG = {
@@ -36,6 +41,9 @@ const LEVEL_CFG = {
   error:   { color: 'text-red-400',     bg: 'bg-red-400/8',     border: 'border-red-400/20',     icon: XCircle,       dot: 'bg-red-400'     },
   success: { color: 'text-emerald-400', bg: 'bg-emerald-400/8', border: 'border-emerald-400/20', icon: CheckCircle2,  dot: 'bg-emerald-400' },
 } as const;
+
+const LANG_FLAG: Record<string, string> = { en: '🇬🇧', ar: '🇸🇦' };
+const LANG_LABEL: Record<string, string> = { en: 'English', ar: 'Arabic' };
 
 function fmt(iso: string | null) {
   if (!iso) return '—';
@@ -144,16 +152,91 @@ function JobCard({ job }: { job: JobStatus }) {
   );
 }
 
+/* ── Source card ────────────────────────────────── */
+function SourceCard({
+  source,
+  selected,
+  active,
+  onSelect,
+  onSync,
+  syncLoading,
+}: {
+  source: SourceInfo;
+  selected: boolean;
+  active: boolean;
+  onSelect: () => void;
+  onSync: () => void;
+  syncLoading: boolean;
+}) {
+  return (
+    <motion.div
+      whileHover={{ y: -2 }}
+      transition={{ duration: 0.15 }}
+      onClick={onSelect}
+      className={`relative cursor-pointer rounded-2xl border p-4 transition-all duration-200 ${
+        selected
+          ? 'bg-accent/8 border-accent/30 shadow-glow-sm'
+          : 'bg-surface border-white/5 hover:border-white/10'
+      }`}
+    >
+      {active && (
+        <div className="absolute inset-0 rounded-2xl bg-emerald-500/4 animate-pulse" />
+      )}
+      <div className="relative">
+        <div className="flex items-start justify-between mb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-base">{LANG_FLAG[source.language]}</span>
+            <span className={`text-xs font-bold px-1.5 py-0.5 rounded-md ${
+              source.language === 'en'
+                ? 'bg-sky-500/10 text-sky-400'
+                : 'bg-emerald-500/10 text-emerald-400'
+            }`}>
+              {LANG_LABEL[source.language]}
+            </span>
+          </div>
+          {active && (
+            <span className="flex items-center gap-1 text-[9px] font-bold text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded-full">
+              <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
+              LIVE
+            </span>
+          )}
+        </div>
+
+        <p className="text-sm font-semibold text-textPrimary capitalize mb-0.5">{source.name}</p>
+        <p className="text-[11px] text-textSecondary/60 truncate mb-3">{source.baseUrl}</p>
+
+        <motion.button
+          whileTap={{ scale: 0.95 }}
+          onClick={(e) => { e.stopPropagation(); onSync(); }}
+          disabled={syncLoading || active}
+          className={`w-full flex items-center justify-center gap-1.5 py-1.5 rounded-xl text-xs font-semibold transition-colors disabled:opacity-40 ${
+            selected
+              ? 'bg-accent hover:bg-accent/90 text-white shadow-glow-sm'
+              : 'bg-white/5 hover:bg-white/10 text-textSecondary hover:text-textPrimary'
+          }`}
+        >
+          {syncLoading
+            ? <RefreshCw className="w-3 h-3 animate-spin" />
+            : <Play className="w-3 h-3 fill-current" />}
+          {active ? 'Syncing…' : 'Sync'}
+        </motion.button>
+      </div>
+    </motion.div>
+  );
+}
+
 type LevelFilter = 'all' | LogEntry['level'];
 
 /* ── Main page ──────────────────────────────────── */
 export default function AdminPage() {
-  const [logs, setLogs]             = useState<LogEntry[]>([]);
-  const [status, setStatus]         = useState<ScraperStatus | null>(null);
-  const [jobs, setJobs]             = useState<JobStatus[]>([]);
-  const [levelFilter, setFilter]    = useState<LevelFilter>('all');
-  const [autoScroll, setAutoScroll] = useState(true);
-  const [loading, setLoading]       = useState<string | null>(null);
+  const [logs, setLogs]               = useState<LogEntry[]>([]);
+  const [status, setStatus]           = useState<ScraperStatus | null>(null);
+  const [jobs, setJobs]               = useState<JobStatus[]>([]);
+  const [sources, setSources]         = useState<SourceInfo[]>([]);
+  const [levelFilter, setFilter]      = useState<LevelFilter>('all');
+  const [sourceFilter, setSourceFilter] = useState<string | null>(null);
+  const [autoScroll, setAutoScroll]   = useState(true);
+  const [loading, setLoading]         = useState<string | null>(null);
 
   const logEndRef = useRef<HTMLDivElement>(null);
   const latestTs  = useRef<string | undefined>(undefined);
@@ -189,8 +272,15 @@ export default function AdminPage() {
     return () => clearInterval(pollRef.current);
   }, [fetchStatus, fetchLogs]);
 
+  useEffect(() => {
+    apiClient.get('/scraper/sources')
+      .then(({ data }) => setSources(data.sources ?? []))
+      .catch(() => {});
+  }, []);
+
   const trigger = async (action: string, body?: object) => {
-    setLoading(action);
+    const key = body ? `source-${(body as any).source}` : action;
+    setLoading(key);
     try {
       await apiClient.post(`/scraper/${action}`, body ?? {});
       await fetchStatus();
@@ -201,14 +291,24 @@ export default function AdminPage() {
     }
   };
 
+  const syncSource = (name: string) => {
+    setSourceFilter(name);
+    trigger('trigger', { source: name });
+  };
+
   const clearLogs = async () => {
     await apiClient.post('/scraper/logs/clear');
     setLogs([]);
     latestTs.current = undefined;
   };
 
-  const filtered  = levelFilter === 'all' ? logs : logs.filter((l) => l.level === levelFilter);
   const isRunning = status?.isRunning ?? false;
+
+  const filtered = logs.filter((l) => {
+    if (levelFilter !== 'all' && l.level !== levelFilter) return false;
+    if (sourceFilter && l.source.toLowerCase() !== sourceFilter.toLowerCase()) return false;
+    return true;
+  });
 
   const counts = {
     info:    logs.filter((l) => l.level === 'info').length,
@@ -238,7 +338,6 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Live badge */}
         <div className={`self-start sm:self-auto flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-all ${
           isRunning
             ? 'bg-emerald-500/10 border-emerald-500/25 text-emerald-400'
@@ -254,10 +353,10 @@ export default function AdminPage() {
         <StatCard label="Status"    value={isRunning ? 'Syncing' : 'Idle'}          icon={Zap}      running={isRunning} />
         <StatCard label="Last Run"  value={fmt(status?.lastRunAt ?? null)}           icon={Clock}    />
         <StatCard label="Errors"    value={String(status?.errors?.length ?? 0)}     icon={XCircle}  />
-        <StatCard label="Jobs"      value={String(jobs.length)}                      icon={Layers}   />
+        <StatCard label="Sources"   value={String(sources.length)}                  icon={Layers}   />
       </div>
 
-      {/* ── Controls ── */}
+      {/* ── Global controls ── */}
       <div className="flex flex-wrap items-center gap-3 mb-10">
         <motion.button
           whileTap={{ scale: 0.97 }}
@@ -301,6 +400,30 @@ export default function AdminPage() {
         </AnimatePresence>
       </div>
 
+      {/* ── Sources grid ── */}
+      {sources.length > 0 && (
+        <div className="mb-10">
+          <div className="flex items-center gap-2 mb-4">
+            <Globe className="w-4 h-4 text-accent" />
+            <h2 className="text-sm font-semibold text-textPrimary">Sources</h2>
+            <span className="text-xs text-textSecondary/50">· click a source to filter its logs</span>
+          </div>
+          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
+            {sources.map((src) => (
+              <SourceCard
+                key={src.name}
+                source={src}
+                selected={sourceFilter === src.name}
+                active={isRunning && loading === `source-${src.name}`}
+                onSelect={() => setSourceFilter((prev) => prev === src.name ? null : src.name)}
+                onSync={() => syncSource(src.name)}
+                syncLoading={loading === `source-${src.name}`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Scheduled jobs ── */}
       {jobs.length > 0 && (
         <div className="mb-10">
@@ -320,15 +443,31 @@ export default function AdminPage() {
         {/* Terminal bar */}
         <div className="flex items-center justify-between px-5 py-3.5 bg-surface border-b border-white/5">
           <div className="flex items-center gap-4">
-            {/* Traffic lights */}
             <div className="flex gap-1.5">
               <span className="w-3 h-3 rounded-full bg-red-500" />
               <span className="w-3 h-3 rounded-full bg-yellow-500" />
               <span className="w-3 h-3 rounded-full bg-emerald-500" />
             </div>
-            <span className="text-xs text-textSecondary/60 font-mono">kamoola · sync logs</span>
+            <span className="text-xs text-textSecondary/60 font-mono">
+              kamoola · {sourceFilter ? `${sourceFilter} logs` : 'sync logs'}
+            </span>
 
-            {/* Live indicator */}
+            {/* Active source filter badge */}
+            <AnimatePresence>
+              {sourceFilter && (
+                <motion.button
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  onClick={() => setSourceFilter(null)}
+                  className="flex items-center gap-1.5 text-[10px] font-bold text-accent bg-accent/10 px-2 py-0.5 rounded-full hover:bg-accent/20 transition-colors"
+                >
+                  {sourceFilter}
+                  <X className="w-2.5 h-2.5" />
+                </motion.button>
+              )}
+            </AnimatePresence>
+
             {isRunning && (
               <span className="flex items-center gap-1.5 text-[10px] font-bold text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -338,13 +477,12 @@ export default function AdminPage() {
           </div>
 
           <div className="flex items-center gap-1">
-            {/* Level pill filters */}
             {([
-              { key: 'all',     label: 'All',     count: logs.length },
-              { key: 'info',    label: 'Info',    count: counts.info,    cfg: LEVEL_CFG.info    },
-              { key: 'success', label: 'OK',       count: counts.success, cfg: LEVEL_CFG.success },
-              { key: 'warn',    label: 'Warn',    count: counts.warn,    cfg: LEVEL_CFG.warn    },
-              { key: 'error',   label: 'Error',   count: counts.error,   cfg: LEVEL_CFG.error   },
+              { key: 'all',     label: 'All',  count: logs.length },
+              { key: 'info',    label: 'Info',  count: counts.info,    cfg: LEVEL_CFG.info    },
+              { key: 'success', label: 'OK',    count: counts.success, cfg: LEVEL_CFG.success },
+              { key: 'warn',    label: 'Warn',  count: counts.warn,    cfg: LEVEL_CFG.warn    },
+              { key: 'error',   label: 'Error', count: counts.error,   cfg: LEVEL_CFG.error   },
             ] as const).map((f) => (
               <button
                 key={f.key}
@@ -397,7 +535,9 @@ export default function AdminPage() {
                 <Activity className="w-5 h-5 text-white/20" />
               </div>
               <p className="text-textSecondary/30 text-xs">
-                No logs yet — click <span className="text-accent">Full Sync</span> to start
+                {sourceFilter
+                  ? <>No logs from <span className="text-accent">{sourceFilter}</span> yet</>
+                  : <>No logs yet — click <span className="text-accent">Full Sync</span> to start</>}
               </p>
             </div>
           ) : (
@@ -411,7 +551,9 @@ export default function AdminPage() {
         {/* Terminal footer */}
         <div className="px-5 py-2.5 bg-surface border-t border-white/5 flex items-center justify-between">
           <span className="text-[10px] text-textSecondary/40 font-mono">
-            {filtered.length} / {logs.length} entries · polls every 2s
+            {filtered.length} / {logs.length} entries
+            {sourceFilter ? ` · filtered: ${sourceFilter}` : ''}
+            {' · polls every 2s'}
           </span>
           {status?.lastRunAt && (
             <span className="text-[10px] text-textSecondary/40 font-mono">
