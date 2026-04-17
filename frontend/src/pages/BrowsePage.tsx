@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { Library } from 'lucide-react';
 import { useMangaList } from '@/hooks/useMangaQueries';
 import MangaGrid from '@/components/manga/MangaGrid';
@@ -46,7 +47,13 @@ function BrowsePage() {
   );
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.35, ease: 'easeOut' }}
+      className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
+    >
       <div className="flex items-center gap-2 mb-6">
         <Library className="w-6 h-6 text-accent" />
         <h1 className="text-2xl font-bold text-textPrimary">Browse Manga</h1>
@@ -96,7 +103,7 @@ function BrowsePage() {
           )}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 

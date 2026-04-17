@@ -1,4 +1,5 @@
 import { useSearchParams } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { Search, BookOpen } from 'lucide-react';
 import { useSearchManga } from '@/hooks/useMangaQueries';
 import MangaGrid from '@/components/manga/MangaGrid';
@@ -20,7 +21,13 @@ function SearchResultsPage() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.35, ease: 'easeOut' }}
+      className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
+    >
       {/* Search header */}
       <div className="mb-8">
         <div className="flex items-center gap-2 mb-4">
@@ -120,7 +127,7 @@ function SearchResultsPage() {
           )}
         </>
       )}
-    </div>
+    </motion.div>
   );
 }
 

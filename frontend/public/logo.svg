@@ -1,0 +1,44 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="512" height="512" rx="96" fill="#e63946"/>
+
+  <!-- Speed lines radiating from center -->
+  <line x1="256" y1="240" x2="20" y2="20"   stroke="white" stroke-width="8" stroke-opacity="0.12"/>
+  <line x1="256" y1="240" x2="492" y2="20"  stroke="white" stroke-width="8" stroke-opacity="0.12"/>
+  <line x1="256" y1="240" x2="20" y2="492"  stroke="white" stroke-width="6" stroke-opacity="0.08"/>
+  <line x1="256" y1="240" x2="492" y2="492" stroke="white" stroke-width="6" stroke-opacity="0.08"/>
+  <line x1="256" y1="240" x2="10"  y2="160" stroke="white" stroke-width="6" stroke-opacity="0.09"/>
+  <line x1="256" y1="240" x2="502" y2="160" stroke="white" stroke-width="6" stroke-opacity="0.09"/>
+  <line x1="256" y1="240" x2="10"  y2="330" stroke="white" stroke-width="5" stroke-opacity="0.07"/>
+  <line x1="256" y1="240" x2="502" y2="330" stroke="white" stroke-width="5" stroke-opacity="0.07"/>
+
+  <!-- Left page of open manga book -->
+  <path d="M256 106 L72 138 L72 384 L256 364 Z" fill="white" fill-opacity="0.95"/>
+
+  <!-- Right page (slightly dimmer = depth) -->
+  <path d="M256 106 L440 138 L440 384 L256 364 Z" fill="white" fill-opacity="0.80"/>
+
+  <!-- Manga panel dividers – left page (2 horizontal lines) -->
+  <line x1="82"  y1="210" x2="244" y2="202" stroke="#e63946" stroke-width="10" stroke-opacity="0.55" stroke-linecap="round"/>
+  <line x1="82"  y1="290" x2="244" y2="282" stroke="#e63946" stroke-width="10" stroke-opacity="0.55" stroke-linecap="round"/>
+
+  <!-- Manga panel dividers – right page -->
+  <line x1="268" y1="202" x2="430" y2="210" stroke="#c42b38" stroke-width="10" stroke-opacity="0.40" stroke-linecap="round"/>
+  <line x1="268" y1="282" x2="430" y2="290" stroke="#c42b38" stroke-width="10" stroke-opacity="0.40" stroke-linecap="round"/>
+
+  <!-- Spine shadow -->
+  <path d="M250 106 L262 106 L262 364 L250 364 Z" fill="#b02030" fill-opacity="0.5"/>
+
+  <!-- Bottom text "KAMOOLA" – bold wordmark below book -->
+  <text
+    x="256"
+    y="456"
+    text-anchor="middle"
+    font-family="Arial Black, Impact, sans-serif"
+    font-weight="900"
+    font-size="72"
+    letter-spacing="6"
+    fill="white"
+    fill-opacity="0.97"
+  >KAMOOLA</text>
+</svg>

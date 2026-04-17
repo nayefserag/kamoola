@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import { Star, ImageOff } from 'lucide-react';
 import { getProxiedImageUrl } from '@/api/manga';
 import StatusBadge from '@/components/shared/StatusBadge';
@@ -23,7 +24,11 @@ function MangaCard({ manga }: MangaCardProps) {
       className="group flex flex-col gap-2 cursor-pointer"
     >
       {/* Cover Image */}
-      <div className="relative aspect-[3/4] rounded-lg overflow-hidden bg-surface">
+      <motion.div
+        className="relative aspect-[3/4] rounded-lg overflow-hidden bg-surface"
+        whileHover={{ y: -5, scale: 1.03 }}
+        transition={{ duration: 0.2, ease: 'easeOut' }}
+      >
         {!imgError && coverUrl ? (
           <>
             {!imgLoaded && <div className="absolute inset-0 skeleton" />}
@@ -33,7 +38,7 @@ function MangaCard({ manga }: MangaCardProps) {
               loading="lazy"
               onLoad={() => setImgLoaded(true)}
               onError={() => setImgError(true)}
-              className={`w-full h-full object-cover transition-transform duration-300 group-hover:scale-105 ${
+              className={`w-full h-full object-cover ${
                 imgLoaded ? 'opacity-100' : 'opacity-0'
               }`}
             />
@@ -58,7 +63,7 @@ function MangaCard({ manga }: MangaCardProps) {
         <div className="absolute top-2 right-2">
           <StatusBadge status={manga.status} />
         </div>
-      </div>
+      </motion.div>
 
       {/* Title */}
       <h3 className="text-sm font-medium text-textPrimary line-clamp-2 group-hover:text-accent transition-colors leading-tight">

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import {
   Star,
   Eye,
@@ -86,11 +87,22 @@ function MangaDetailPage() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.35, ease: 'easeOut' }}
+      className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
+    >
       {/* Header */}
       <div className="flex flex-col md:flex-row gap-8">
         {/* Cover Image */}
-        <div className="w-full md:w-64 shrink-0">
+        <motion.div
+          className="w-full md:w-64 shrink-0"
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.45, ease: 'easeOut', delay: 0.1 }}
+        >
           <div className="aspect-[3/4] rounded-lg overflow-hidden bg-surface">
             {!imgError && coverUrl ? (
               <img
@@ -105,7 +117,7 @@ function MangaDetailPage() {
               </div>
             )}
           </div>
-        </div>
+        </motion.div>
 
         {/* Info */}
         <div className="flex-1 min-w-0">
@@ -259,7 +271,7 @@ function MangaDetailPage() {
           )}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
