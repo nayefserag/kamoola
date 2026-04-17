@@ -6,65 +6,63 @@
   body {
     @apply bg-background text-textPrimary font-sans antialiased;
   }
-
   * {
     @apply border-gray-800;
   }
 }
 
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+@layer utilities {
+  /* Glass morphism */
+  .glass {
+    background: rgba(16, 16, 30, 0.75);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  /* Gradient heading text */
+  .gradient-text {
+    background: linear-gradient(135deg, #f0f0f8 30%, #e63946 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Dot grid pattern */
+  .dot-grid {
+    background-image: radial-gradient(circle, rgba(255,255,255,0.04) 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
 }
 
-::-webkit-scrollbar-track {
-  background: #0f0f0f;
-}
+/* ── Scrollbar ─────────────────────────────────── */
+::-webkit-scrollbar        { width: 6px; height: 6px; }
+::-webkit-scrollbar-track  { background: #080810; }
+::-webkit-scrollbar-thumb  { background: #2a2a44; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #e63946; }
+*                          { scrollbar-width: thin; scrollbar-color: #2a2a44 #080810; }
 
-::-webkit-scrollbar-thumb {
-  background: #333;
-  border-radius: 4px;
-}
+/* ── Reader ────────────────────────────────────── */
+.reader-longstrip { scroll-behavior: smooth; }
 
-::-webkit-scrollbar-thumb:hover {
-  background: #555;
-}
+/* ── Hide scrollbar (horizontal containers) ────── */
+.hide-scrollbar::-webkit-scrollbar { display: none; }
+.hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-/* Firefox scrollbar */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #333 #0f0f0f;
-}
-
-/* Smooth scroll for long strip reader */
-.reader-longstrip {
-  scroll-behavior: smooth;
-}
-
-/* Hide scrollbar for horizontal scroll containers */
-.hide-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-
-.hide-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-/* Skeleton shimmer */
+/* ── Skeleton shimmer ──────────────────────────── */
 @keyframes shimmer {
-  0% { background-position: 200% 0; }
+  0%   { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
-
 .skeleton {
-  background: linear-gradient(
-    90deg,
-    #1a1a2e 25%,
-    #252545 50%,
-    #1a1a2e 75%
-  );
+  background: linear-gradient(90deg, #10101e 25%, #1e1e38 50%, #10101e 75%);
   background-size: 200% 100%;
   animation: shimmer 1.6s ease-in-out infinite;
 }
+
+/* ── Accent scrollbar thumb on hover (cards) ───── */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 12px rgba(230,57,70,0.3); }
+  50%       { box-shadow: 0 0 28px rgba(230,57,70,0.55); }
+}
+.glow-pulse { animation: glow-pulse 2.5s ease-in-out infinite; }

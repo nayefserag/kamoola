@@ -6,7 +6,8 @@ function AppLayout() {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       <Navbar />
-      <main className="flex-1 pt-16">
+      {/* No pt-16 — hero extends behind transparent navbar */}
+      <main className="flex-1">
         <Outlet />
       </main>
       <Footer />

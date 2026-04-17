@@ -20,7 +20,7 @@ import Pagination from '@/components/shared/Pagination';
 
 function MangaDetailSkeleton() {
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-pulse">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-8 animate-pulse">
       <div className="flex flex-col md:flex-row gap-8">
         <div className="w-full md:w-64 shrink-0">
           <div className="aspect-[3/4] rounded-lg skeleton" />
@@ -92,7 +92,7 @@ function MangaDetailPage() {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.35, ease: 'easeOut' }}
-      className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8"
+      className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-24 pb-8"
     >
       {/* Header */}
       <div className="flex flex-col md:flex-row gap-8">

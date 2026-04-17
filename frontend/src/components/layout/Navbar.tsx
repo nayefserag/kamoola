@@ -11,7 +11,7 @@ function Navbar() {
   const location = useLocation();
 
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 10);
+    const onScroll = () => setScrolled(window.scrollY > 20);
     window.addEventListener('scroll', onScroll, { passive: true });
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
@@ -25,10 +25,20 @@ function Navbar() {
 
   return (
     <nav
-      className={`fixed top-0 left-0 right-0 z-50 bg-surface/95 backdrop-blur-sm border-b border-gray-800 transition-shadow duration-300 ${
-        scrolled ? 'shadow-lg shadow-black/60' : ''
+      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
+        scrolled
+          ? 'glass shadow-[0_1px_0_rgba(255,255,255,0.05)] shadow-xl shadow-black/40'
+          : 'bg-transparent'
       }`}
     >
+      {/* Bottom accent line on scroll */}
+      <motion.div
+        className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-accent/40 to-transparent"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: scrolled ? 1 : 0 }}
+        transition={{ duration: 0.3 }}
+      />
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Logo */}
@@ -36,38 +46,38 @@ function Navbar() {
             <Logo size={32} showText={true} />
           </Link>
 
-          {/* Search Bar - center on desktop */}
+          {/* Search Bar */}
           <div className="hidden md:flex flex-1 max-w-md mx-8">
             <SearchBar />
           </div>
 
-          {/* Desktop Nav Links */}
-          <div className="hidden md:flex items-center gap-6">
+          {/* Desktop links */}
+          <div className="hidden md:flex items-center gap-1">
             {navLinks.map((link) => (
               <Link
                 key={link.to}
                 to={link.to}
-                className={`text-sm font-medium transition-colors relative ${
+                className={`relative px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                   isActive(link.to)
-                    ? 'text-accent'
-                    : 'text-textSecondary hover:text-textPrimary'
+                    ? 'text-accent bg-accent/10'
+                    : 'text-textSecondary hover:text-textPrimary hover:bg-white/5'
                 }`}
               >
                 {link.label}
                 {isActive(link.to) && (
                   <motion.span
-                    layoutId="nav-underline"
-                    className="absolute -bottom-1 left-0 right-0 h-0.5 bg-accent rounded-full"
+                    layoutId="nav-pill"
+                    className="absolute inset-0 rounded-lg bg-accent/10 -z-10"
                   />
                 )}
               </Link>
             ))}
           </div>
 
-          {/* Mobile menu button */}
+          {/* Mobile toggle */}
           <motion.button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="md:hidden p-2 text-textSecondary hover:text-textPrimary transition-colors"
+            className="md:hidden p-2 text-textSecondary hover:text-textPrimary transition-colors rounded-lg hover:bg-white/5"
             whileTap={{ scale: 0.9 }}
             aria-label="Toggle menu"
           >
@@ -80,7 +90,7 @@ function Navbar() {
                   exit={{ rotate: 90, opacity: 0 }}
                   transition={{ duration: 0.15 }}
                 >
-                  <X className="w-6 h-6" />
+                  <X className="w-5 h-5" />
                 </motion.span>
               ) : (
                 <motion.span
@@ -90,7 +100,7 @@ function Navbar() {
                   exit={{ rotate: -90, opacity: 0 }}
                   transition={{ duration: 0.15 }}
                 >
-                  <Menu className="w-6 h-6" />
+                  <Menu className="w-5 h-5" />
                 </motion.span>
               )}
             </AnimatePresence>
@@ -107,18 +117,18 @@ function Navbar() {
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.25, ease: 'easeInOut' }}
             style={{ overflow: 'hidden' }}
-            className="md:hidden bg-surface border-b border-gray-800"
+            className="md:hidden glass border-t border-white/5"
           >
             <div className="px-4 py-3">
               <SearchBar />
             </div>
-            <div className="px-4 pb-4 space-y-2">
+            <div className="px-4 pb-4 space-y-1">
               {navLinks.map((link) => (
                 <Link
                   key={link.to}
                   to={link.to}
                   onClick={() => setMobileMenuOpen(false)}
-                  className={`block py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+                  className={`block py-2.5 px-3 rounded-xl text-sm font-medium transition-colors ${
                     isActive(link.to)
                       ? 'text-accent bg-accent/10'
                       : 'text-textSecondary hover:text-textPrimary hover:bg-white/5'
