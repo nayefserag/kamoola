@@ -8,6 +8,7 @@ export interface Manga {
   status: 'ongoing' | 'completed' | 'hiatus' | 'cancelled';
   description: string;
   coverImage: string;
+  language: string;
   source: string;
   sourceUrl: string;
   rating: number;
@@ -45,6 +46,7 @@ export interface MangaFilters {
   genres?: string[];
   status?: string;
   sort?: string;
+  language?: string;
   page?: number;
   limit?: number;
 }
