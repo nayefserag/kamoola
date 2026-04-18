@@ -89,6 +89,8 @@ export class MangaKakalotPlugin implements IScraperPlugin {
       `/genre/all?type=newest&page=${page + 1}`,
       `/manga-list/latest-update?page=${page + 1}`,
       `/manga_list?type=latest&category=all&state=all&page=${page + 1}`,
+      `/manga-list/hot-manga?page=${page + 1}`,
+      `/?page=${page + 1}`,
     ];
 
     for (const url of urls) {
@@ -104,6 +106,7 @@ export class MangaKakalotPlugin implements IScraperPlugin {
       }
     }
 
+    this.logger.warn(`getLatestManga page ${page}: all URLs returned empty`);
     return [];
   }
 

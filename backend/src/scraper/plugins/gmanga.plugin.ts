@@ -165,6 +165,9 @@ export class GMangaPlugin implements IScraperPlugin {
     const apiUrls = [
       `${this.baseUrl}/api/mangas?page=${page + 1}`,
       `${this.baseUrl}/api/mangas/latest?page=${page + 1}`,
+      `${this.baseUrl}/api/mangas/recent?page=${page + 1}`,
+      `${this.baseUrl}/api/v1/mangas?page=${page + 1}`,
+      `${this.baseUrl}/api/releases?page=${page + 1}`,
     ];
 
     for (const url of apiUrls) {
@@ -181,11 +184,17 @@ export class GMangaPlugin implements IScraperPlugin {
             data.data ||
             data.mangas ||
             data.results ||
+            data.releases ||
+            data.items ||
             (Array.isArray(data) ? data : null);
           if (Array.isArray(items) && items.length > 0) {
-            return items
+            const mapped = items
               .map((item: any) => this.mapApiManga(item))
               .filter(Boolean) as MangaResult[];
+            if (mapped.length > 0) {
+              this.logger.debug(`API listing via ${url}: ${mapped.length} manga`);
+              return mapped;
+            }
           }
         }
       } catch {
@@ -561,9 +570,33 @@ export class GMangaPlugin implements IScraperPlugin {
     const $ = cheerio.load(html);
     const results: MangaResult[] = [];
 
+    // GMANGA exposes its initial state in a script tag. Try that first.
+    const scripts = $('script').toArray();
+    for (const el of scripts) {
+      const content = $(el).html() || '';
+      const match = content.match(
+        /(?:gon\.mangas|window\.__INITIAL_STATE__|__DATA__|window\.gmanga_data)\s*=\s*(\{[\s\S]*?\})\s*;?$/m,
+      );
+      if (match) {
+        try {
+          const data = JSON.parse(match[1]);
+          const items = data.mangas || data.data?.mangas || data.data || [];
+          if (Array.isArray(items) && items.length > 0) {
+            const mapped = items
+              .map((item: any) => this.mapApiManga(item))
+              .filter(Boolean) as MangaResult[];
+            if (mapped.length > 0) return mapped;
+          }
+        } catch {
+          // continue
+        }
+      }
+    }
+
     $(
       'div.manga-card, div.manga-item, div.series-card, ' +
-      'div.manga-list-item, a.manga-link, div.novel-item',
+      'div.manga-list-item, a.manga-link, div.novel-item, ' +
+      'div.mangas-list .manga-card, div.manga-box, article.manga',
     ).each((_i, el) => {
       const $el = $(el);
       const linkEl = $el.is('a')

@@ -232,23 +232,46 @@ export class OlympusStaffPlugin implements IScraperPlugin {
   // ---------------------------------------------------------------------------
 
   async getLatestManga(page: number): Promise<MangaResult[]> {
-    try {
-      const url = `/series?page=${page + 1}`;
-      const html = await this.fetchHtml(url);
+    // Try several common listing patterns — the homepage shows
+    // latest updates on some Team-X deployments, while /series paginates.
+    const urls = [
+      `/series?page=${page + 1}`,
+      `/?page=${page + 1}`,
+      `/manga?page=${page + 1}`,
+      `/series/page/${page + 1}`,
+    ];
 
-      // Try JSON-based extraction first
-      const jsonData = this.extractEmbeddedJson(html);
-      if (jsonData) {
-        const results = this.extractMangaListFromJson(jsonData);
-        if (results.length > 0) return results;
+    for (const url of urls) {
+      try {
+        const html = await this.fetchHtml(url);
+
+        // Try JSON-based extraction first
+        const jsonData = this.extractEmbeddedJson(html);
+        if (jsonData) {
+          const results = this.extractMangaListFromJson(jsonData);
+          if (results.length > 0) {
+            this.logger.debug(
+              `getLatestManga page ${page}: ${results.length} via JSON on ${url}`,
+            );
+            return results;
+          }
+        }
+
+        // Fallback: HTML scraping
+        const results = this.scrapeListingPage(html);
+        if (results.length > 0) {
+          this.logger.debug(
+            `getLatestManga page ${page}: ${results.length} via HTML on ${url}`,
+          );
+          return results;
+        }
+      } catch (err: any) {
+        this.logger.warn(`${url} failed: ${err.message}`);
       }
-
-      // Fallback: HTML scraping
-      return this.scrapeListingPage(html);
-    } catch (error: any) {
-      this.logger.error(`getLatestManga page ${page} failed: ${error.message}`);
-      return [];
     }
+
+    this.logger.warn(`getLatestManga page ${page}: all URLs returned empty`);
+    return [];
   }
 
   async searchManga(query: string, page: number): Promise<MangaResult[]> {

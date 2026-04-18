@@ -147,34 +147,78 @@ export class AsuraScansPlugin implements IScraperPlugin {
   }
 
   async getLatestManga(page: number): Promise<MangaResult[]> {
-    try {
-      const html = await this.fetchHtml(`/series?page=${page + 1}`);
+    const urls = [
+      `/series?page=${page + 1}`,
+      `/series?page=${page + 1}&order=update`,
+      `/?page=${page + 1}`,
+      `/manga?page=${page + 1}`,
+    ];
 
-      // First try __NEXT_DATA__
-      const data = this.extractNextData(html);
-      if (data) {
-        const pp = data?.props?.pageProps || {};
-        const list =
-          pp?.series?.data ||
-          pp?.series ||
-          pp?.data?.series ||
-          pp?.data ||
-          pp?.results ||
-          [];
-        if (Array.isArray(list) && list.length > 0) {
-          const mapped = list
-            .map((item: any) => this.mapSeries(item))
-            .filter(Boolean) as MangaResult[];
-          if (mapped.length > 0) return mapped;
+    for (const url of urls) {
+      try {
+        const html = await this.fetchHtml(url);
+
+        // __NEXT_DATA__ — try multiple shapes
+        const data = this.extractNextData(html);
+        if (data) {
+          const collected = this.walkForSeriesList(data);
+          if (collected.length > 0) {
+            this.logger.debug(
+              `getLatestManga page ${page}: ${collected.length} via JSON on ${url}`,
+            );
+            return collected;
+          }
         }
-      }
 
-      // Fallback: HTML scraping
-      return this.scrapeListingHtml(html);
-    } catch (err: any) {
-      this.logger.error(`getLatestManga page ${page} failed: ${err.message}`);
-      return [];
+        // HTML scraping fallback
+        const scraped = this.scrapeListingHtml(html);
+        if (scraped.length > 0) {
+          this.logger.debug(
+            `getLatestManga page ${page}: ${scraped.length} via HTML on ${url}`,
+          );
+          return scraped;
+        }
+      } catch (err: any) {
+        this.logger.warn(`${url} failed: ${err.message}`);
+      }
     }
+
+    this.logger.warn(`getLatestManga page ${page}: all URLs returned empty`);
+    return [];
+  }
+
+  /**
+   * Recursively walk a Next.js pageProps tree looking for a series/manga list.
+   * AsuraScans shifts the shape between releases so we scan broadly.
+   */
+  private walkForSeriesList(obj: any, depth = 0): MangaResult[] {
+    if (!obj || depth > 6) return [];
+
+    if (Array.isArray(obj) && obj.length > 0) {
+      // Is this an array of series-looking objects?
+      const looksLikeSeries = obj.every(
+        (item: any) =>
+          item &&
+          typeof item === 'object' &&
+          (item.title || item.name) &&
+          (item.slug || item.id || item.url),
+      );
+      if (looksLikeSeries) {
+        const mapped = obj
+          .map((item: any) => this.mapSeries(item))
+          .filter(Boolean) as MangaResult[];
+        if (mapped.length > 0) return mapped;
+      }
+    }
+
+    if (typeof obj === 'object' && !Array.isArray(obj)) {
+      for (const key of Object.keys(obj)) {
+        const found = this.walkForSeriesList(obj[key], depth + 1);
+        if (found.length > 0) return found;
+      }
+    }
+
+    return [];
   }
 
   private scrapeListingHtml(html: string): MangaResult[] {
