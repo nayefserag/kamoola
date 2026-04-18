@@ -154,16 +154,36 @@ export class MangaKakalotPlugin implements IScraperPlugin {
 
     // Broader fallback: find any link to /manga/<slug>
     if (results.length === 0) {
-      $('a[href*="/manga/"]').each((_i, el) => {
+      $('a[href*="/manga/"], a[href*="/manga-"]').each((_i, el) => {
         const $a = $(el);
-        const href = $a.attr('href') || '';
+        const href = ($a.attr('href') || '').split(/[?#]/)[0];
         if (!href || seen.has(href)) return;
         // Skip chapter links
         if (/\/chapter[-\/]/i.test(href)) return;
+        // Must be a detail-page URL, not a listing index
+        if (/\/manga-list/i.test(href)) return;
+
         const $img = $a.find('img').first();
-        const title = ($a.attr('title') || $img.attr('alt') || $a.text().trim()).trim();
+        const parentTitle = $a
+          .parent()
+          .find('h3, h4, .title, .genres-item-name, .story-item-title, .item-title')
+          .first()
+          .text()
+          .trim();
+        const title = (
+          $a.attr('title') ||
+          $img.attr('alt') ||
+          parentTitle ||
+          $a.text().trim() ||
+          ''
+        ).trim();
         if (!title || title.length < 2) return;
-        const coverImage = $img.attr('data-src') || $img.attr('src') || '';
+
+        const coverImage =
+          $img.attr('data-src') ||
+          $img.attr('src') ||
+          $img.attr('data-lazy-src') ||
+          '';
         seen.add(href);
         results.push({
           title,

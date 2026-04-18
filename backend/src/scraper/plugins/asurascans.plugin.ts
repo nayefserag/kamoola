@@ -190,21 +190,22 @@ export class AsuraScansPlugin implements IScraperPlugin {
   /**
    * Recursively walk a Next.js pageProps tree looking for a series/manga list.
    * AsuraScans shifts the shape between releases so we scan broadly.
+   * We accept an array if a majority of its items look series-shaped.
    */
   private walkForSeriesList(obj: any, depth = 0): MangaResult[] {
-    if (!obj || depth > 6) return [];
+    if (!obj || depth > 8) return [];
 
-    if (Array.isArray(obj) && obj.length > 0) {
-      // Is this an array of series-looking objects?
-      const looksLikeSeries = obj.every(
+    if (Array.isArray(obj) && obj.length > 2) {
+      const seriesLike = obj.filter(
         (item: any) =>
           item &&
           typeof item === 'object' &&
-          (item.title || item.name) &&
-          (item.slug || item.id || item.url),
+          (item.title || item.name || item.seriesTitle) &&
+          (item.slug || item.series_slug || item.id || item.url),
       );
-      if (looksLikeSeries) {
-        const mapped = obj
+      // Accept if >= 70% of items look like series
+      if (seriesLike.length >= obj.length * 0.7 && seriesLike.length >= 3) {
+        const mapped = seriesLike
           .map((item: any) => this.mapSeries(item))
           .filter(Boolean) as MangaResult[];
         if (mapped.length > 0) return mapped;
@@ -214,6 +215,13 @@ export class AsuraScansPlugin implements IScraperPlugin {
     if (typeof obj === 'object' && !Array.isArray(obj)) {
       for (const key of Object.keys(obj)) {
         const found = this.walkForSeriesList(obj[key], depth + 1);
+        if (found.length > 0) return found;
+      }
+    }
+
+    if (Array.isArray(obj)) {
+      for (const item of obj) {
+        const found = this.walkForSeriesList(item, depth + 1);
         if (found.length > 0) return found;
       }
     }

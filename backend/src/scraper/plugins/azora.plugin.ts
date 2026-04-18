@@ -140,61 +140,140 @@ export class AzoraPlugin implements IScraperPlugin {
     const results: MangaResult[] = [];
     const seen = new Set<string>();
 
-    $('a[href*="/series/"]').each((_i, el) => {
-      const $a = $(el);
+    const pushIfSeries = ($a: any) => {
       const href = ($a.attr('href') || '').split(/[?#]/)[0];
-      const m = href.match(/\/series\/([^\/]+)\/?$/);
+      const m = href.match(/\/series\/([^\/]+)\/?$/) || href.match(/\/manga\/([^\/]+)\/?$/);
       if (!m) return;
       const slug = m[1];
-      if (seen.has(slug)) return;
+      if (!slug || slug === '' || seen.has(slug)) return;
 
       const $img = $a.find('img').first();
       const title = (
         $a.attr('title') ||
         $img.attr('alt') ||
-        $a.find('h3, h2').text().trim() ||
+        $a.find('h3, h2, h4, .title, .series-title').first().text().trim() ||
+        $a.text().trim() ||
         ''
       ).trim();
       if (!title || title.length < 2) return;
       seen.add(slug);
 
-      const cover = ($img.attr('src') || $img.attr('data-src') || '').trim();
+      const cover = (
+        $img.attr('src') ||
+        $img.attr('data-src') ||
+        $img.attr('data-lazy-src') ||
+        ''
+      ).trim();
       results.push({
         title,
         coverImage: cover || undefined,
         sourceUrl: `${this.baseUrl}/series/${slug}`,
         language: 'ar',
       });
+    };
+
+    // Primary: all anchors pointing at /series/ or /manga/
+    $('a[href*="/series/"], a[href*="/manga/"]').each((_i, el) => {
+      pushIfSeries($(el));
     });
+
+    // Fallback: pull from Next.js __NEXT_DATA__ embedded JSON if present
+    if (results.length === 0) {
+      const script = $('script#__NEXT_DATA__').html();
+      if (script) {
+        try {
+          const data = JSON.parse(script);
+          const found = this.walkForPosts(data);
+          for (const item of found) {
+            if (!item.slug || seen.has(item.slug)) continue;
+            seen.add(item.slug);
+            results.push(this.mapPost(item));
+          }
+        } catch {}
+      }
+    }
 
     return results;
   }
 
-  async getLatestManga(page: number): Promise<MangaResult[]> {
-    // Primary: REST API
-    try {
-      const data = await this.fetchJson('/api/query', {
-        perPage: 20,
-        page: page + 1,
-        orderBy: 'updatedAt',
-        orderDirection: 'desc',
-      });
-      const posts = data?.posts ?? data?.data ?? [];
-      if (Array.isArray(posts) && posts.length > 0) {
-        return posts.map((p: any) => this.mapPost(p));
+  private walkForPosts(obj: any, depth = 0): any[] {
+    if (!obj || depth > 8) return [];
+    if (Array.isArray(obj) && obj.length > 2) {
+      const looksLikePosts = obj.filter(
+        (item: any) =>
+          item &&
+          typeof item === 'object' &&
+          (item.postTitle || item.title) &&
+          item.slug,
+      );
+      if (looksLikePosts.length >= obj.length * 0.7 && looksLikePosts.length >= 3) {
+        return looksLikePosts;
       }
-    } catch (err: any) {
-      this.logger.warn(`API query failed: ${err.message}`);
+    }
+    if (typeof obj === 'object' && !Array.isArray(obj)) {
+      for (const key of Object.keys(obj)) {
+        const found = this.walkForPosts(obj[key], depth + 1);
+        if (found.length > 0) return found;
+      }
+    }
+    if (Array.isArray(obj)) {
+      for (const item of obj) {
+        const found = this.walkForPosts(item, depth + 1);
+        if (found.length > 0) return found;
+      }
+    }
+    return [];
+  }
+
+  async getLatestManga(page: number): Promise<MangaResult[]> {
+    // Primary: REST API — try several parameter shapes since Azora's
+    // backend has shifted between releases.
+    const apiAttempts = [
+      { perPage: 20, page: page + 1, orderBy: 'updatedAt', orderDirection: 'desc' },
+      { perPage: 20, page: page + 1, orderBy: 'latest' },
+      { perPage: 20, page: page + 1 },
+      { per_page: 20, page: page + 1, order: 'latest' },
+    ];
+    for (const params of apiAttempts) {
+      try {
+        const data = await this.fetchJson('/api/query', params);
+        const posts = data?.posts ?? data?.data ?? data?.results ?? [];
+        if (Array.isArray(posts) && posts.length > 0) {
+          this.logger.debug(
+            `getLatestManga page ${page}: ${posts.length} via API with ${JSON.stringify(params)}`,
+          );
+          return posts.map((p: any) => this.mapPost(p));
+        }
+      } catch (err: any) {
+        this.logger.warn(`API query ${JSON.stringify(params)} failed: ${err.message}`);
+      }
     }
 
-    // Fallback: scrape the listing page
-    try {
-      const html = await this.fetchHtml(`/series?page=${page + 1}`);
-      return this.scrapeSeriesHtml(html);
-    } catch (err: any) {
-      this.logger.error(`getLatestManga page ${page} failed: ${err.message}`);
-      return [];
+    // Fallback: scrape the listing page, trying several paths
+    const htmlPaths = [
+      `/series?page=${page + 1}`,
+      `/series/?page=${page + 1}`,
+      `/?page=${page + 1}`,
+      `/manga?page=${page + 1}`,
+      `/latest?page=${page + 1}`,
+    ];
+    for (const path of htmlPaths) {
+      try {
+        const html = await this.fetchHtml(path);
+        const results = this.scrapeSeriesHtml(html);
+        if (results.length > 0) {
+          this.logger.debug(
+            `getLatestManga page ${page}: ${results.length} via HTML on ${path}`,
+          );
+          return results;
+        }
+      } catch (err: any) {
+        this.logger.warn(`HTML ${path} failed: ${err.message}`);
+      }
     }
+
+    this.logger.warn(`getLatestManga page ${page}: all methods empty`);
+    return [];
   }
 
   async searchManga(query: string, page: number): Promise<MangaResult[]> {

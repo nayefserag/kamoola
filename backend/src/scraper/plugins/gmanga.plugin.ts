@@ -10,8 +10,12 @@ import {
 } from '../interfaces/scraper-plugin.interface';
 
 /**
- * Scraper plugin for GMANGA (https://gmanga.org)
+ * Scraper plugin for GMANGA (https://gmanga.me)
  * One of the largest Arabic manga aggregator sites.
+ *
+ * NOTE: the original domain gmanga.org redirects / is dead — the
+ * current active domain as of 2026 is gmanga.me. Set GMANGA_BASE_URL
+ * in .env to override if it moves again.
  *
  * GMANGA is a custom PHP-based platform (not Madara) with its own
  * internal API. We try the JSON API first, then fall back to HTML scraping.
@@ -31,7 +35,7 @@ export class GMangaPlugin implements IScraperPlugin {
   private gotScrapingPromise: Promise<any> | undefined;
 
   constructor() {
-    this.baseUrl = process.env.GMANGA_BASE_URL || 'https://gmanga.org';
+    this.baseUrl = process.env.GMANGA_BASE_URL || 'https://gmanga.me';
     this.client = axios.create({
       baseURL: this.baseUrl,
       timeout: 15000,
